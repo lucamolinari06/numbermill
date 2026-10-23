@@ -1,0 +1,425 @@
+{
+  "captured_at": "2026-10-23T18:31:34.804856+00:00",
+  "tests_run": 77,
+  "failures": 0,
+  "errors": 0,
+  "duration_seconds": 8.160918000008678,
+  "passed_tests": [
+    "test_circuit.CircuitTests.test_bend_accepts_steam_from_either_end_and_clears",
+    "test_circuit.CircuitTests.test_commission_checks_truth_table",
+    "test_circuit.CircuitTests.test_design_snapshot_is_an_independent_copy",
+    "test_circuit.CircuitTests.test_market_cooler_requires_nor",
+    "test_circuit.CircuitTests.test_propagation_takes_multiple_steps",
+    "test_circuit.CircuitTests.test_safety_vent_requires_nand",
+    "test_circuit.CircuitTests.test_second_commission_accepts_or_and_rejects_and",
+    "test_circuit.CircuitTests.test_splitter_accepts_steam_from_any_connected_end",
+    "test_circuit.VillageTests.test_bakery_selector_increases_sales",
+    "test_circuit.VillageTests.test_business_posts_job_and_rival_delivers_after_visible_bid",
+    "test_circuit.VillageTests.test_controller_improves_supply_and_price",
+    "test_circuit.VillageTests.test_food_shortage_changes_personal_action_and_memory",
+    "test_circuit.VillageTests.test_fuel_shortage_pauses_installed_steam_machine",
+    "test_circuit.VillageTests.test_goods_and_payments_move_between_independent_firms",
+    "test_circuit.VillageTests.test_household_trade_conserves_money_and_leaves_player_stock",
+    "test_circuit.VillageTests.test_license_pays_daily_and_pauses_machine_when_unpaid",
+    "test_circuit.VillageTests.test_market_buys_from_bakery_before_selling_to_villagers",
+    "test_circuit.VillageTests.test_market_controller_prevents_spoilage",
+    "test_circuit.VillageTests.test_mely_luca_firms_history_and_motives_survive_days",
+    "test_circuit.VillageTests.test_missed_deadline_has_a_visible_business_decision",
+    "test_circuit.VillageTests.test_player_can_win_after_rival_bid",
+    "test_circuit.VillageTests.test_safety_vent_prevents_seventh_day_shutdown",
+    "test_circuit.VillageTests.test_same_business_type_can_have_separate_owner_and_stock",
+    "test_circuit.VillageTests.test_sell_copy_pays_more_and_records_both_owners",
+    "test_circuit.VillageTests.test_unaffordable_bread_does_not_remove_goods_or_money",
+    "test_circuit.VillageTests.test_unaffordable_rival_delivery_postpones_without_debt",
+    "test_circuit.VillageTests.test_unbid_expired_offer_is_renewed_without_ending_save",
+    "test_circuit.VillageTests.test_workshop_service_uses_local_supplies_and_pays_net_income",
+    "test_computation.ArithmeticTests.test_nested_numeric_device_carries_full_result_and_state_is_restored",
+    "test_computation.ArithmeticTests.test_numeric_bus_boundaries_and_all_operations",
+    "test_computation.ComputeEconomyTests.test_invalid_design_is_rejected_without_payment",
+    "test_computation.ComputeEconomyTests.test_per_customer_and_daily_capacity_limits_and_next_day_reset",
+    "test_computation.ComputeEconomyTests.test_planning_bonus_affects_next_production_and_expires",
+    "test_computation.ComputeEconomyTests.test_registration_pays_once_and_runs_transfer_funds_consume_fuel",
+    "test_computation.ComputeEconomyTests.test_shortages_and_bankruptcy_preserve_resources",
+    "test_computation.WorkbenchUITests.test_full_compute_flow_and_save_roundtrip",
+    "test_computation.WorkbenchUITests.test_numeric_inputs_increment_and_decrement",
+    "test_computation.WorkbenchUITests.test_symbol_palette_places_arithmetic_in_expanded_area",
+    "test_devices.CitizenInteractionTests.test_camera_adjusted_click_opens_remote_npc_inspection",
+    "test_devices.CitizenInteractionTests.test_residents_continue_visits_without_advancing_economy",
+    "test_devices.DeviceTests.test_instances_keep_independent_state_and_pinned_definition",
+    "test_devices.DeviceTests.test_library_versions_placement_inspection_and_port_names",
+    "test_devices.DeviceTests.test_nested_devices_preserve_logic_delay_and_live_state",
+    "test_devices.DeviceTests.test_recursive_definitions_are_rejected",
+    "test_devices.DeviceTests.test_slot_roundtrip_preserves_devices_and_root_while_inspecting",
+    "test_game_ui.GameUITests.test_contract_board_respects_prerequisites_and_keeps_floor",
+    "test_game_ui.GameUITests.test_delete_requires_confirmation_and_frees_a_slot",
+    "test_game_ui.GameUITests.test_deleting_slot_one_does_not_resurrect_legacy_save",
+    "test_game_ui.GameUITests.test_delivery_choice_saves_copy_ownership_and_survives_reload",
+    "test_game_ui.GameUITests.test_editing_after_pass_requires_retest_before_submission",
+    "test_game_ui.GameUITests.test_existing_save_appears_in_first_slot_without_overwriting_original",
+    "test_game_ui.GameUITests.test_fourth_contract_is_on_next_board_page",
+    "test_game_ui.GameUITests.test_help_overlay_blocks_building_and_closes_with_escape",
+    "test_game_ui.GameUITests.test_ledger_and_named_residents_are_visible_and_saved",
+    "test_game_ui.GameUITests.test_license_survives_reload_and_pays_next_day",
+    "test_game_ui.GameUITests.test_market_is_reachable_and_does_not_open_workshop",
+    "test_game_ui.GameUITests.test_quit_key_only_exits_from_menu",
+    "test_game_ui.GameUITests.test_save_slots_keep_progress_and_designs_separate",
+    "test_game_ui.GameUITests.test_test_button_reports_or_failure_and_seven_selects_eraser",
+    "test_game_ui.GameUITests.test_third_contract_submits_a_working_nand_design",
+    "test_game_ui.GameUITests.test_third_contract_unlocks_and_can_be_selected",
+    "test_game_ui.GameUITests.test_town_unlocks_bakery_after_mill",
+    "test_game_ui.GameUITests.test_workshop_door_opens_on_one_interaction",
+    "test_inventions.InventionIntegrationTests.test_click_locked_palette_opens_lesson_and_leaves_floor_unchanged",
+    "test_inventions.InventionIntegrationTests.test_compute_registration_and_running_require_earned_technology",
+    "test_inventions.InventionIntegrationTests.test_earned_industrial_block_keeps_full_decimal_bus_values",
+    "test_inventions.InventionIntegrationTests.test_legacy_save_preserves_used_technology_but_not_unused_blocks",
+    "test_inventions.InventionIntegrationTests.test_nested_device_loading_and_forged_selection_cannot_bypass_locks",
+    "test_inventions.InventionIntegrationTests.test_save_reload_preserves_drafts_unlocks_and_evidence",
+    "test_inventions.InventionIntegrationTests.test_ui_can_construct_half_adder_wire_and_unlock",
+    "test_inventions.InventionTests.test_all_guided_prototypes_pass_exhaustive_binary_cases",
+    "test_inventions.InventionTests.test_arithmetic_shortcuts_cycles_and_grid_expansion_are_rejected",
+    "test_inventions.InventionTests.test_failed_case_can_be_loaded_for_tracing_and_gate_removal_disconnects",
+    "test_inventions.InventionTests.test_multiplier_requires_adder_and_unlocks_remain_after_edits",
+    "test_inventions.InventionTests.test_new_village_starts_with_all_arithmetic_locked",
+    "test_inventions.InventionTests.test_trace_exposes_gate_delay_and_binary_outputs",
+    "test_inventions.InventionTests.test_wrong_gate_and_missing_output_do_not_unlock"
+  ],
+  "groups": {
+    "test_circuit": 28,
+    "test_computation": 10,
+    "test_devices": 7,
+    "test_game_ui": 18,
+    "test_inventions": 14
+  },
+  "passing_calculator": [
+    {
+      "a": 0,
+      "b": 0,
+      "expected": 0,
+      "actual": 0,
+      "stable": true,
+      "passed": true
+    },
+    {
+      "a": 0,
+      "b": 1,
+      "expected": 0,
+      "actual": 0,
+      "stable": true,
+      "passed": true
+    },
+    {
+      "a": 1,
+      "b": 0,
+      "expected": 0,
+      "actual": 0,
+      "stable": true,
+      "passed": true
+    },
+    {
+      "a": 5,
+      "b": 7,
+      "expected": 35,
+      "actual": 35,
+      "stable": true,
+      "passed": true
+    },
+    {
+      "a": 7,
+      "b": 5,
+      "expected": 35,
+      "actual": 35,
+      "stable": true,
+      "passed": true
+    },
+    {
+      "a": 15,
+      "b": 15,
+      "expected": 225,
+      "actual": 225,
+      "stable": true,
+      "passed": true
+    },
+    {
+      "a": 255,
+      "b": 1,
+      "expected": 255,
+      "actual": 255,
+      "stable": true,
+      "passed": true
+    },
+    {
+      "a": 255,
+      "b": 255,
+      "expected": 65025,
+      "actual": 65025,
+      "stable": true,
+      "passed": true
+    }
+  ],
+  "rejected_calculator": [
+    {
+      "a": 0,
+      "b": 0,
+      "expected": 0,
+      "actual": 0,
+      "stable": true,
+      "passed": true
+    },
+    {
+      "a": 0,
+      "b": 1,
+      "expected": 0,
+      "actual": 1,
+      "stable": true,
+      "passed": false
+    },
+    {
+      "a": 1,
+      "b": 0,
+      "expected": 0,
+      "actual": 1,
+      "stable": true,
+      "passed": false
+    },
+    {
+      "a": 5,
+      "b": 7,
+      "expected": 35,
+      "actual": 12,
+      "stable": true,
+      "passed": false
+    },
+    {
+      "a": 7,
+      "b": 5,
+      "expected": 35,
+      "actual": 12,
+      "stable": true,
+      "passed": false
+    },
+    {
+      "a": 15,
+      "b": 15,
+      "expected": 225,
+      "actual": 30,
+      "stable": true,
+      "passed": false
+    },
+    {
+      "a": 255,
+      "b": 1,
+      "expected": 255,
+      "actual": 256,
+      "stable": true,
+      "passed": false
+    },
+    {
+      "a": 255,
+      "b": 255,
+      "expected": 65025,
+      "actual": 510,
+      "stable": true,
+      "passed": false
+    }
+  ],
+  "paid_order": {
+    "day": 1,
+    "job": "fuel_quote",
+    "a": 2,
+    "b": 3,
+    "result": 6,
+    "fee": 8,
+    "cost": 3,
+    "net": 5,
+    "revision": 1
+  },
+  "invention_records": {
+    "adder": {
+      "day": 1,
+      "design": {
+        "gates": [
+          {
+            "kind": "XOR",
+            "inputs": [
+              "A",
+              "B"
+            ]
+          },
+          {
+            "kind": "AND",
+            "inputs": [
+              "A",
+              "B"
+            ]
+          }
+        ],
+        "outputs": {
+          "SUM": "G0",
+          "CARRY": "G1"
+        }
+      },
+      "cases": 4
+    },
+    "subtractor": {
+      "day": 1,
+      "design": {
+        "gates": [
+          {
+            "kind": "XOR",
+            "inputs": [
+              "A",
+              "B"
+            ]
+          },
+          {
+            "kind": "NOT",
+            "inputs": [
+              "A",
+              null
+            ]
+          },
+          {
+            "kind": "AND",
+            "inputs": [
+              "G1",
+              "B"
+            ]
+          }
+        ],
+        "outputs": {
+          "DIFF": "G0",
+          "BORROW": "G2"
+        }
+      },
+      "cases": 4
+    },
+    "comparator": {
+      "day": 1,
+      "design": {
+        "gates": [
+          {
+            "kind": "NOT",
+            "inputs": [
+              "B",
+              null
+            ]
+          },
+          {
+            "kind": "AND",
+            "inputs": [
+              "A",
+              "G0"
+            ]
+          },
+          {
+            "kind": "XOR",
+            "inputs": [
+              "A",
+              "B"
+            ]
+          },
+          {
+            "kind": "NOT",
+            "inputs": [
+              "G2",
+              null
+            ]
+          }
+        ],
+        "outputs": {
+          "GT": "G1",
+          "EQ": "G3"
+        }
+      },
+      "cases": 4
+    },
+    "multiplier": {
+      "day": 1,
+      "design": {
+        "gates": [
+          {
+            "kind": "AND",
+            "inputs": [
+              "A0",
+              "B0"
+            ]
+          },
+          {
+            "kind": "AND",
+            "inputs": [
+              "A1",
+              "B0"
+            ]
+          },
+          {
+            "kind": "AND",
+            "inputs": [
+              "A0",
+              "B1"
+            ]
+          },
+          {
+            "kind": "AND",
+            "inputs": [
+              "A1",
+              "B1"
+            ]
+          },
+          {
+            "kind": "XOR",
+            "inputs": [
+              "G1",
+              "G2"
+            ]
+          },
+          {
+            "kind": "AND",
+            "inputs": [
+              "G1",
+              "G2"
+            ]
+          },
+          {
+            "kind": "XOR",
+            "inputs": [
+              "G3",
+              "G5"
+            ]
+          },
+          {
+            "kind": "AND",
+            "inputs": [
+              "G3",
+              "G5"
+            ]
+          }
+        ],
+        "outputs": {
+          "P0": "G0",
+          "P1": "G4",
+          "P2": "G6",
+          "P3": "G7"
+        }
+      },
+      "cases": 16
+    }
+  },
+  "arithmetic_unlocks": [
+    "ADD",
+    "SUB",
+    "GT",
+    "EQ",
+    "MUL"
+  ],
+  "screenshots": [
+    "01-expanded-workbench.png",
+    "02-arithmetic-tests.png",
+    "03-paid-computation.png",
+    "04-rejected-calculator.png",
+    "05-test-summary.png",
+    "06-binary-half-adder.png",
+    "07-add-unlocked.png",
+    "08-binary-multiplier.png",
+    "09-multiplier-verified.png"
+  ]
+}
