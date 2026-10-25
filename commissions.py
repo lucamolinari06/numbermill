@@ -17,6 +17,11 @@ class Commission:
     reward: int
     benefit: str
     prerequisite: str | None = None
+    input_c: str | None = None
+    business_id: str | None = None
+    machine: str | None = None
+    materials: tuple[tuple[str, int], ...] = ()
+    unlock_day: int = 1
 
 
 COMMISSIONS = {
@@ -110,9 +115,10 @@ COMMISSIONS = {
         level=6,
         title="Market order sorter",
         customer="Merchant",
-        description=("Send a loaf to the household counter when", "either the east or west street is busy.", "A shared signal needs a splitter."),
+        description=("Replenish the counter when at least two", "of the east street, west street, and", "delivery queue signals are active."),
         input_a="east street busy",
         input_b="west street busy",
+        input_c="delivery queue busy",
         output="counter replenishes",
         logic="MAJORITY",
         reward=26,
@@ -120,3 +126,94 @@ COMMISSIONS = {
         prerequisite="market",
     ),
 }
+
+
+# Later jobs practice distinct behaviors using the existing gates and routed
+# traces. A linear prerequisite keeps one new brief in focus at a time.
+_LATER_JOBS = (
+    ("fuel_diverter", "Fuel siding diverter", "Mely", "fuel_yard", "XOR",
+     ("north wagon", "south wagon"), "siding opens",
+     ("Open the siding for one waiting wagon.", "Close it if both sidings are occupied", "or if neither wagon has arrived.")),
+    ("mill_agreement", "Mill belt synchronizer", "Bram", "mill", "XNOR",
+     ("upper belt running", "lower belt running"), "belts synchronized",
+     ("The two belt sensors must agree.", "Signal safe when both belts run", "or when both belts have stopped.")),
+    ("bakery_inspection", "Bakery tray inspection", "Agnes", "bakery", "IMPLIES",
+     ("tray present", "tray inspected"), "line safe",
+     ("An occupied tray must be inspected.", "An empty line is safe, regardless", "of the inspection switch.")),
+    ("farm_release", "Farm sluice release", "Ada", "farm", "ALL_THREE",
+     ("water available", "channel clear", "sluice lock secured"), "sluice opens",
+     ("Release water only with all three", "safety signals active. A missing", "signal must keep the sluice shut.")),
+    ("market_bell", "Market service bell", "Dara", "market", "ANY_THREE",
+     ("east counter waiting", "west counter waiting", "delivery waiting"), "bell rings",
+     ("Ring the service bell if any counter", "or delivery needs attention. Silence", "it only when all three are quiet.")),
+    ("parts_selector", "Repair bench selector", "Luca", "parts_shop", "MUX",
+     ("hand-bench request", "lathe request", "lathe selected"), "work authorized",
+     ("The selector chooses a work request.", "C off: follow the hand bench (A).", "C on: follow the lathe request (B).")),
+    ("fuel_parity", "Fuel tally checker", "Mely", "fuel_yard", "ODD_PARITY",
+     ("first tally bit", "second tally bit", "third tally bit"), "odd tally",
+     ("Check the three-bit tally signal.", "Light the output for one or three", "active bits; otherwise leave it off.")),
+    ("mill_single_feed", "Mill single-feed guard", "Bram", "mill", "EXACTLY_ONE",
+     ("hopper A feeding", "hopper B feeding", "hopper C feeding"), "feed accepted",
+     ("Accept exactly one feeding hopper.", "Reject an empty feed and reject", "any two or three hoppers together.")),
+    ("bakery_pairing", "Bakery batch pairing", "Agnes", "bakery", "EXACTLY_TWO",
+     ("batch A ready", "batch B ready", "batch C ready"), "pair dispatched",
+     ("Dispatch only a pair of ready batches.", "Exactly two signals must be active;", "one, none, or all three must wait.")),
+    ("farm_consensus", "Farm sensor consensus", "Ada", "farm", "UNANIMOUS",
+     ("north sensor", "field sensor", "south sensor"), "sensors agree",
+     ("Approve the three sensors only when", "they all agree. All off is valid", "as well as all on; mixtures fail.")),
+    ("market_dispatch", "Market dispatch interlock", "Dara", "market", "INHIBITED_OR",
+     ("counter requests stock", "delivery requests stock", "loading dock blocked"), "dispatch allowed",
+     ("Serve either stock request when the", "loading dock is clear. A blocked", "dock must stop every dispatch.")),
+    ("parts_priority", "Repair priority controller", "Luca", "parts_shop", "PRIORITY",
+     ("urgent repair", "routine repair", "bench reserved"), "repair authorized",
+     ("An urgent repair always proceeds.", "A routine repair proceeds only if", "the bench has not been reserved.")),
+)
+
+for index, (key, title, customer, business, logic, inputs, output, description) in enumerate(_LATER_JOBS):
+    COMMISSIONS[key] = Commission(
+        key=key, level=7 + index, title=title, customer=customer,
+        description=description, input_a=inputs[0], input_b=inputs[1],
+        input_c=inputs[2] if len(inputs) == 3 else None, output=output,
+        logic=logic, reward=20 + 2 * index,
+        benefit=("Daily capacity +1 and working stock +1; capped at two later controllers." if business in ("farm", "mill", "bakery", "market") else
+                 "Stock +1; timber-kit orders can fund a packing job." if key == "parts_selector" else
+                 "Stock +1; metal-kit orders can fund a packing job." if key == "parts_priority" else
+                 "Working stock buffer +1; production rate unchanged."),
+        prerequisite="sorter" if index == 0 else _LATER_JOBS[index - 1][0],
+        business_id=business, machine=f"{key}_controller",
+        materials=(("timber", 1), ("metal", 1 + index // 6), ("fittings", 1)),
+        unlock_day=8 + index * 4,
+    )
+
+EXTENDED_CONTRACTS = {
+    key: (job.business_id, job.machine, job.reward)
+    for key, job in COMMISSIONS.items() if job.business_id
+}
+
+
+def post_extended_offers(village):
+    """Offer one affordable later job after its prerequisite and opening day.
+
+    Installation lists, rather than transient convenience attributes, are the
+    source of truth so old and new saves share the same unlock behavior.
+    """
+    if any(village.offers.get(key, {}).get("status") in ("open", "bid")
+           for key in EXTENDED_CONTRACTS):
+        return
+    for key, (business_id, _machine, reward) in EXTENDED_CONTRACTS.items():
+        job = COMMISSIONS[key]
+        if key in village.offers or village.day < job.unlock_day:
+            continue
+        prerequisite = village.offers.get(job.prerequisite, {})
+        if prerequisite.get("status") not in ("player", "rival"):
+            continue
+        firm = village.businesses.get(business_id)
+        if not firm or firm.get("cash", 0) < reward + 16:
+            continue
+        village.offers[key] = {
+            "status": "open", "posted_day": village.day, "due_day": village.day + 8,
+            "reason": job.benefit,
+        }
+        village.last_contract_event = f"{job.customer} posted {job.title.lower()}."
+        village.journal.insert(0, village.last_contract_event)
+        return

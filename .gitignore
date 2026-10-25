@@ -5,3 +5,25 @@ save.json
 designs.json
 saves/
 Numbermill.zip
+.test-tmp/
+preferences.json
+
+# Local builds, generated previews, and creative drafts
+build/
+dist/
+output/
+pet-artifacts/
+proposals/
+steam_and_sum_*.wav
+testing-screenshots/**/*.log
+testing-screenshots/**/*.json
+
+# Local credentials and editor/OS caches
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.pytest_cache/
+.DS_Store
+Thumbs.db

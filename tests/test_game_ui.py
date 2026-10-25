@@ -13,9 +13,94 @@ from circuit import Part
 from economy import Village
 from game import Game
 from town import LOCATIONS
+from materials import material_bill
 
 
 class GameUITests(unittest.TestCase):
+    def test_library_delete_cancel_confirm_and_reload_preserve_floor(self):
+        from copy import deepcopy
+        from game import PANEL_X
+        game = Game()
+        game.start_slot(1)
+        game.scene, game.tab = "workshop", "LIBRARY"
+        game.save_copy("Keep")
+        game.save_copy("Remove")
+        game.draw()
+        floor = deepcopy(game.circuit.snapshot())
+        game.handle_click((PANEL_X + 380, 430), 1)
+        self.assertEqual(game.pending_design_delete, 1)
+        game.draw()
+        game.handle_click((PANEL_X + 100, 340), 1)
+        game.handle_key(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_s, mod=0))
+        self.assertEqual(len(game.designs), 2)
+        game.handle_key(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_ESCAPE, mod=0))
+        self.assertIsNone(game.pending_design_delete)
+        self.assertEqual(len(game.designs), 2)
+        game.request_delete_design(1)
+        game.draw()
+        game.handle_click((780, 445), 1)
+        self.assertEqual([d['name'] for d in game.designs], ['Keep'])
+        self.assertEqual(game.circuit.snapshot(), floor)
+        loaded = Game()
+        loaded.start_slot(1)
+        self.assertEqual([d['name'] for d in loaded.designs], ['Keep'])
+        self.assertEqual(loaded.circuit.snapshot(), floor)
+
+    def test_library_deletion_keeps_device_copies_and_delivered_machines(self):
+        from copy import deepcopy
+        game = Game()
+        game.start_slot(1)
+        game.scene = 'workshop'
+        game.save_copy('Controller')
+        game.select_device(0)
+        game.circuit.set_part((6, 3), Part('DEVICE', device=game.held_device))
+        game.village.complete_mill_job('license')
+        floor = deepcopy(game.circuit.snapshot())
+        business = deepcopy(game.village.businesses)
+        licenses = deepcopy(game.village.licenses)
+        game.request_delete_design(0)
+        game.handle_key(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RETURN, mod=0))
+        self.assertEqual(game.designs, [])
+        self.assertEqual(game.circuit.snapshot(), floor)
+        self.assertEqual(game.village.businesses, business)
+        self.assertEqual(game.village.licenses, licenses)
+        loaded = Game()
+        loaded.start_slot(1)
+        self.assertEqual(loaded.designs, [])
+        self.assertEqual(loaded.circuit.snapshot(), floor)
+
+    def test_deleted_versions_and_ids_are_not_reused_and_last_page_clamps(self):
+        game = Game()
+        game.start_slot(1)
+        game.scene = 'workshop'
+        game.save_copy('Original')
+        game.save_copy()
+        original_id = game.designs[0]['device_id']
+        game.request_delete_design(1)
+        game.confirm_delete_design()
+        loaded = Game()
+        loaded.start_slot(1)
+        loaded.scene = 'workshop'
+        loaded.load_design(0)
+        loaded.save_copy()
+        self.assertEqual(loaded.designs[-1]['version'], 3)
+        self.assertEqual(loaded.designs[-1]['device_id'], original_id)
+        for i in range(3):
+            loaded.save_copy(f'Extra {i}')
+        loaded.library_page = 1
+        loaded.request_delete_design(0)
+        loaded.confirm_delete_design()
+        self.assertEqual(loaded.library_page, 0)
+        highest = max(d['number'] for d in loaded.designs)
+        while loaded.designs:
+            loaded.request_delete_design(0)
+            loaded.confirm_delete_design()
+        loaded.draw()
+        reloaded = Game()
+        reloaded.start_slot(1)
+        reloaded.save_copy('Fresh')
+        self.assertGreater(reloaded.designs[0]['device_id'], highest)
+
     def test_help_overlay_blocks_building_and_closes_with_escape(self):
         game = Game()
         game.start_slot(1)
@@ -69,7 +154,7 @@ class GameUITests(unittest.TestCase):
             path.stop()
         self.temp.cleanup()
 
-    def test_test_button_reports_or_failure_and_seven_selects_eraser(self):
+    def test_test_button_reports_or_failure_and_y_selects_eraser(self):
         game = Game()
         game.village = Village()
         game.scene = "workshop"
@@ -87,7 +172,7 @@ class GameUITests(unittest.TestCase):
         game.draw()  # The results panel itself must render.
 
         game.handle_key(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_ESCAPE, mod=0))
-        game.handle_key(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_7, mod=0))
+        game.handle_key(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_y, mod=0))
         self.assertEqual(game.selected, "ERASE")
 
     def test_town_unlocks_bakery_after_mill(self):
@@ -117,6 +202,7 @@ class GameUITests(unittest.TestCase):
         self.assertFalse(game.village.bakery_machine)
         self.assertEqual(game.village.coins, 36)
         game.test_results = None
+        game.village.material_inventory.update(material_bill(game.commission.key))
         game.submit_design()
         self.assertTrue(game.village.bakery_machine)
         self.assertEqual(game.village.coins, 66)
@@ -148,6 +234,7 @@ class GameUITests(unittest.TestCase):
         game.circuit.set_part((6, 3), Part("NOT"))
         game.test_commission()
         self.assertTrue(game.submission_ready)
+        game.village.material_inventory.update(material_bill(game.commission.key))
         game.submit_design()
         self.assertTrue(game.village.vent_machine)
         self.assertEqual(game.village.coins, 86)
@@ -180,16 +267,17 @@ class GameUITests(unittest.TestCase):
         game.handle_key(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RETURN, mod=0))
         self.assertTrue(game.delivery_open)
         self.assertFalse(game.village.mill_machine)
+        game.village.material_inventory.update(material_bill(game.commission.key))
         game.draw()
         game.handle_key(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_2, mod=0))
         self.assertTrue(game.village.mill_machine)
         self.assertEqual(game.village.coins, 44)
-        self.assertEqual(game.designs[-1]["owner"], "You")
+        self.assertEqual(game.designs[-1]["owner"], "Boole")
         self.assertIn("Miller owns one copy", game.designs[-1]["rights_note"])
         game.return_to_menu()
         game.start_slot(1)
         self.assertEqual(game.village.offers["mill"]["copy_owner"], "Miller")
-        self.assertEqual(game.designs[-1]["owner"], "You")
+        self.assertEqual(game.designs[-1]["owner"], "Boole")
 
     def test_license_survives_reload_and_pays_next_day(self):
         game = Game()
@@ -198,10 +286,12 @@ class GameUITests(unittest.TestCase):
         game.return_to_menu()
         game.start_slot(1)
         self.assertEqual(game.village.offers["mill"]["delivery_mode"], "license")
-        self.assertEqual(game.village.capacity("mill"), 4)
+        self.assertEqual(game.village.capacity("mill", nominal=True), 4)
         before = game.village.coins
         game.next_day()
         self.assertEqual(game.village.coins, before + 2)
+        self.assertEqual(game.village.capacity("mill", nominal=True), 4)
+        game.village.update_life(game.town, 180)
         self.assertEqual(game.village.capacity("mill"), 4)
 
     def test_workshop_door_opens_on_one_interaction(self):
@@ -209,7 +299,7 @@ class GameUITests(unittest.TestCase):
         game.start_slot(1)
         self.assertEqual(game.town.nearby(), "workshop")
         game.interact_town()
-        self.assertEqual(game.scene, "workshop")
+        self.assertEqual(game.scene, "factory")
 
     def test_ledger_and_named_residents_are_visible_and_saved(self):
         game = Game()
@@ -231,7 +321,7 @@ class GameUITests(unittest.TestCase):
         game.return_to_menu()
         game.start_slot(1)
         mely = next(person for person in game.village.citizens if person["name"] == "Mely")
-        self.assertEqual(mely["relationships"]["You"], 22)
+        self.assertEqual(mely["relationships"]["Boole"], 22)
 
     def test_market_is_reachable_and_does_not_open_workshop(self):
         game = Game()
@@ -265,12 +355,14 @@ class GameUITests(unittest.TestCase):
         self.assertEqual(game.village.coins, 12)
         game.circuit.set_part((4, 3), Part("OR"))
         self.assertFalse(game.submission_ready)
+        game.village.material_inventory.update(material_bill(game.commission.key))
         game.submit_design()
         self.assertFalse(game.village.mill_machine)
 
     def test_save_slots_keep_progress_and_designs_separate(self):
         game = Game()
         self.assertEqual(game.scene, "menu")
+        game.handle_key(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RETURN, mod=0))
         game.draw()
         game.handle_click((940, 229), 1)
         self.assertEqual(game.current_slot, 1)
@@ -281,7 +373,7 @@ class GameUITests(unittest.TestCase):
         game.village.households["home_1"]["cash"] = 11
         game.circuit.set_part((2, 3), Part("PIPE"))
         game.save_copy("First plan")
-        game.handle_key(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_q, mod=0))
+        game.return_to_menu()
         self.assertEqual(game.scene, "menu")
         self.assertTrue(game.running)
         game.start_slot(2)
@@ -321,6 +413,7 @@ class GameUITests(unittest.TestCase):
         game.start_slot(2)
         game.village.coins = 99
         game.return_to_menu()
+        game.handle_key(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RETURN, mod=0))
         game.draw()
         game.handle_click((1004, 313), 1)
         self.assertEqual(game.pending_delete, 2)
@@ -341,6 +434,7 @@ class GameUITests(unittest.TestCase):
         SAVE_FILE.write_text(json.dumps(original), encoding="utf-8")
         DESIGNS_FILE.write_text("[]", encoding="utf-8")
         game = Game()
+        game.handle_key(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RETURN, mod=0))
         game.draw()
         game.handle_click((1004, 229), 1)
         self.assertEqual(game.pending_delete, 1)
@@ -350,14 +444,60 @@ class GameUITests(unittest.TestCase):
         game.start_slot(1)
         self.assertEqual(game.village.day, 1)
 
-    def test_quit_key_only_exits_from_menu(self):
+    def test_q_never_exits_or_changes_screens(self):
         game = Game()
         game.start_slot(1)
-        game.handle_key(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_q, mod=0))
-        self.assertEqual(game.scene, "menu")
+        for scene in ("town", "workshop", "compute", "contracts", "ledger", "requests", "menu"):
+            game.scene = scene
+            for page in ("title", "slots"):
+                game.menu_page = page
+                game.handle_key(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_q, mod=0))
+                self.assertEqual(game.scene, scene)
+                self.assertTrue(game.running)
+
+    def test_pause_freezes_simulation_blocks_input_and_resumes(self):
+        from copy import deepcopy
+        game = Game()
+        game.start_slot(1)
+        for scene in ("town", "workshop"):
+            game.scene = scene
+            game.handle_key(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_ESCAPE, mod=0))
+            self.assertTrue(game.pause_menu_open)
+            game.draw()  # Initialize lazily created display/readout state.
+            village = deepcopy(game.village.__dict__)
+            circuit = deepcopy(game.circuit.snapshot())
+            position = (game.town.player_x, game.town.player_y)
+            game.draw()
+            self.assertEqual(len(game.buttons), len(game.pause_entries()))
+            game.handle_key(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_n, mod=0))
+            game.handle_click((150, 200), 1)
+            game.update(10)
+            self.assertEqual(game.village.__dict__, village)
+            self.assertEqual(game.circuit.snapshot(), circuit)
+            self.assertEqual((game.town.player_x, game.town.player_y), position)
+            game.handle_click(game.pause_buttons()[0][0].center, 1)
+            self.assertFalse(game.pause_menu_open)
+        game.handle_key(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_ESCAPE, mod=0))
+        game.handle_key(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_ESCAPE, mod=0))
+        self.assertEqual(game.scene, "workshop")
+        self.assertFalse(game.pause_menu_open)
         self.assertTrue(game.running)
-        game.handle_key(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_q, mod=0))
+        game.pause_menu_open = True
+        index = next(i for i, (label, _) in enumerate(game.pause_entries()) if label == "Back to Main Menu")
+        game.handle_click(game.pause_buttons()[index][0].center, 1)
+        self.assertEqual(game.scene, "menu")
+
+    def test_pause_exit_saves_progress(self):
+        game = Game()
+        game.start_slot(1)
+        game.village.coins = 123
+        game.pause_menu_open = True
+        index = next(i for i, (label, _) in enumerate(game.pause_entries()) if label == "Exit Game")
+        game.handle_click(game.pause_buttons()[index][0].center, 1)
         self.assertFalse(game.running)
+        loaded = Game()
+        loaded.start_slot(1)
+        self.assertEqual(loaded.village.coins, 123)
 
 
 if __name__ == "__main__":

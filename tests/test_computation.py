@@ -74,7 +74,10 @@ class ComputeEconomyTests(unittest.TestCase):
         receipt = self.village.compute_orders[-1]
         self.assertEqual(receipt["result"],receipt["a"]*receipt["b"])
         self.assertEqual(self.village.compute_earned,5)
-        self.assertTrue(any(e["good"] == "calculation" for e in self.village.trade_history[-1]["entries"]))
+        entries = self.village.trade_history[-1]["entries"]
+        self.assertEqual(sum(1 for e in entries if e["good"] == "fuel"), 1)
+        self.assertEqual(sum(1 for e in entries if e["good"] == "maintenance"), 1)
+        self.assertEqual(sum(1 for e in entries if e["good"] == "calculation"), 1)
 
     def test_per_customer_and_daily_capacity_limits_and_next_day_reset(self):
         for key in computation.JOBS: self.approve(key)
@@ -114,7 +117,9 @@ class ComputeEconomyTests(unittest.TestCase):
 class WorkbenchUITests(unittest.TestCase):
     def test_symbol_palette_places_arithmetic_in_expanded_area(self):
         game=Game(); game.scene="workshop"; game.village.arithmetic_unlocks=["ADD"]; game.draw()
-        game.handle_click((1080,510),1)
+        game.handle_click((1090,450),1)  # Math group
+        game.draw()
+        game.handle_click((992,496),1)  # ADD
         self.assertEqual(game.selected,"ADD")
         game.handle_click((BOARD_X+15*CELL+15,BOARD_Y+8*CELL+15),1)
         self.assertEqual(game.circuit.parts[(15,8)].kind,"ADD")
@@ -137,7 +142,7 @@ class WorkbenchUITests(unittest.TestCase):
 
     def test_numeric_inputs_increment_and_decrement(self):
         game=Game(); game.scene="workshop"; game.numeric_mode=True
-        point=(BOARD_X+CELL+20,BOARD_Y+3*CELL+20)
+        point=(BOARD_X+20,BOARD_Y+3*CELL+20)
         game.handle_click(point,1)
         self.assertEqual(game.circuit.switches["A"],1)
         game.handle_click(point,3)

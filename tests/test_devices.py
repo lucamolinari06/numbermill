@@ -114,17 +114,19 @@ class CitizenInteractionTests(unittest.TestCase):
         self.assertEqual(game.town_dialogue, "person:Mely")
         self.assertEqual((game.town.player_x, game.town.player_y), (1000, 1180))
 
-    def test_residents_continue_visits_without_advancing_economy(self):
+    def test_residents_work_shop_and_continue_visits_within_one_day(self):
         village = Village()
         town = Town()
         seen = {p["name"]: set() for p in village.citizens}
-        before = (village.day, village.coins, deepcopy(village.businesses))
+        before = (village.day, village.coins)
         for _ in range(2400):
-            town.update_people(village, .1)
+            village.update_life(town, .1)
             for p in village.citizens:
                 seen[p["name"]].add(p["destination"])
         self.assertTrue(all(len(destinations) >= 2 for destinations in seen.values()), seen)
-        self.assertEqual((village.day, village.coins, village.businesses), before)
+        self.assertEqual((village.day, village.coins), before)
+        self.assertEqual(village.last_day_report["fed"], 3)
+        self.assertTrue(all(value == 4 for value in village.last_day_report["paid"].values()))
 
 
 if __name__ == "__main__":

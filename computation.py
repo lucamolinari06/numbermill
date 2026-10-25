@@ -40,8 +40,6 @@ DAILY_CAPACITY = 2
 
 def trade(village, seller, buyer, good, units, coins):
     village._record_trade(seller, buyer, good, units, coins)
-    if village.trade_history and village.trade_history[-1]["day"] == village.day:
-        village.trade_history[-1]["entries"].append(deepcopy(village.daily_trades[-1]))
 
 
 def check(circuit, key):
@@ -125,7 +123,8 @@ def run_order(village, key):
     village.coins += job.fee - 3
     village.compute_earned += job.fee - 3
     trade(village, fuel["name"], "Your Workshop", "fuel", 1, 2)
-    trade(village, "Workshop maintenance", "Your Workshop", "maintenance", 1, 1)
+    village._record_trade("Workshop maintenance", "Your Workshop", "maintenance", 1, 1,
+                          external=True, cash_delta=-1)
     trade(village, "Your Workshop", customer["name"], "calculation", 1, job.fee)
     customer["compute_day"] = village.day
     village.compute_orders.append({"day": village.day, "job": key, "a": a, "b": b, "result": actual,

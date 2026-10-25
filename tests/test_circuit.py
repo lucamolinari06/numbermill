@@ -1,6 +1,7 @@
 import unittest
 
 from circuit import Circuit, Part
+from town import Town
 from economy import Village
 
 
@@ -110,7 +111,7 @@ class VillageTests(unittest.TestCase):
         self.assertGreater(village.businesses["fuel_yard"]["cash"], before_fuel_cash)
         self.assertGreater(village.businesses["parts_shop"]["stock"]["parts"], 0)
         self.assertTrue(any(entry["from"] == "Mely's Fuel Yard" and entry["to"] == "Luca's Repair Shop"
-                            for entry in village.trade_history[-1]["entries"]))
+                            for entry in village.trade_history[-2]["entries"]))
         self.assertTrue(mely["memories"])
         self.assertIn(mely["activity"], ("working", "resting", "visiting neighbors",
                                          "spending time with spouse", "seeking food", "looking for help"))
@@ -123,12 +124,11 @@ class VillageTests(unittest.TestCase):
         active.advance_day()
         control.advance_day()
         self.assertEqual(active.coins - control.coins, 2)
-        # The customer also buys one extra grain to use its tuned capacity.
-        self.assertEqual(active.businesses["mill"]["cash"] - control.businesses["mill"]["cash"], -9)
-        self.assertEqual(active.businesses["mill"]["stock"]["flour"] -
-                         control.businesses["mill"]["stock"]["flour"], 1)
+        # The new day has charged service; attendance will earn its extra capacity.
+        self.assertEqual(active.businesses["mill"]["cash"] - control.businesses["mill"]["cash"], -8)
+        self.assertEqual(active.capacity("mill") - control.capacity("mill"), 1)
         self.assertEqual(active.businesses["fuel_yard"]["cash"] - control.businesses["fuel_yard"]["cash"], 3)
-        self.assertEqual(active.businesses["parts_shop"]["cash"] - control.businesses["parts_shop"]["cash"], 2)
+        self.assertEqual(active.businesses["parts_shop"]["cash"] - control.businesses["parts_shop"]["cash"], 3)
         self.assertEqual(active.service_days, 1)
 
     def test_food_shortage_changes_personal_action_and_memory(self):
@@ -138,7 +138,7 @@ class VillageTests(unittest.TestCase):
         mely = next(person for person in village.citizens if person["name"] == "Mely")
         self.assertGreater(mely["hunger"], 25)
         self.assertIn(mely["activity"], ("seeking food", "looking for help"))
-        self.assertIn("Day 2", mely["memories"][-1])
+        self.assertIn(f"Day {village.last_day_report['day']}", mely["memories"][-1])
 
     def test_fuel_shortage_pauses_installed_steam_machine(self):
         village = Village()
@@ -155,7 +155,7 @@ class VillageTests(unittest.TestCase):
         self.assertTrue(village.complete_mill_job("sell"))
         self.assertEqual(village.coins, 44)
         self.assertEqual(village.businesses["mill"]["cash"] + village.coins, before)
-        self.assertEqual(village.offers["mill"]["design_owner"], "You")
+        self.assertEqual(village.offers["mill"]["design_owner"], "Boole")
         self.assertEqual(village.offers["mill"]["copy_owner"], "Miller")
         self.assertEqual(village.offers["mill"]["delivery_mode"], "sell")
         self.assertFalse(village.complete_mill_job("sell"))
@@ -186,6 +186,8 @@ class VillageTests(unittest.TestCase):
             unsafe.advance_day()
             safe.advance_day()
         self.assertEqual(safe.day, 6)
+        unsafe.update_life(Town(), 180)
+        safe.update_life(Town(), 180)
         self.assertTrue(any("lost one loaf" in line for line in unsafe.journal))
         self.assertFalse(any("lost one loaf" in line for line in safe.journal))
         self.assertEqual(safe.bread, unsafe.bread + 1)
@@ -201,6 +203,8 @@ class VillageTests(unittest.TestCase):
         for _ in range(6):
             unsafe.advance_day()
             safe.advance_day()
+        unsafe.update_life(Town(), 180)
+        safe.update_life(Town(), 180)
         self.assertTrue(any("boiler shut down" in line for line in unsafe.journal))
         self.assertFalse(any("boiler shut down" in line for line in safe.journal))
         self.assertGreater(safe.bread, unsafe.bread)
@@ -242,7 +246,7 @@ class VillageTests(unittest.TestCase):
             village.advance_day()
         self.assertTrue(village.offers["mill"]["missed_deadline"])
         self.assertEqual(village.offers["mill"]["status"], "rival")
-        self.assertTrue(any("chose to wait for Nell" in line for line in village.journal))
+        self.assertTrue(any("chose to wait for Grace" in line for line in village.journal))
 
     def test_unaffordable_rival_delivery_postpones_without_debt(self):
         village = Village()
@@ -254,7 +258,7 @@ class VillageTests(unittest.TestCase):
         self.assertFalse(village.mill_machine)
         self.assertEqual(village.rival_cash, 0)
         self.assertEqual(village.offers["mill"]["status"], "open")
-        self.assertIn("could not afford Nell", village.last_contract_event)
+        self.assertIn("could not afford Grace", village.last_contract_event)
 
     def test_unbid_expired_offer_is_renewed_without_ending_save(self):
         village = Village()
@@ -272,7 +276,7 @@ class VillageTests(unittest.TestCase):
         before = money()
         village.advance_day()
         self.assertEqual(money(), before)
-        self.assertTrue(all(h["bought"] == 1 for h in village.households.values()))
+        self.assertTrue(all(h["bought"] == h["needed"] for h in village.last_day_report["meals"].values()))
         stock = village.businesses["market"]["stock"]["bread"]
         coins = village.coins
         village.buy_bread()
@@ -294,12 +298,14 @@ class VillageTests(unittest.TestCase):
         village = Village()
         village.advance_day()
         self.assertGreater(village.businesses["bakery"]["cash"], 120)
-        deliveries = [entry for entry in village.trade_history[-1]["entries"]
+        deliveries = [entry for entry in village.trade_history[-2]["entries"]
                       if entry["from"] == "Copperside Bakery" and entry["to"] == "Copperside Market"]
-        self.assertEqual(deliveries[0]["units"], 3)
-        self.assertEqual(deliveries[0]["coins"], 21)
-        self.assertEqual(village.businesses["market"]["stock"]["bread"], 2)
-        self.assertIn("market sold 3 bread", village.journal[0])
+        units = sum(entry["units"] for entry in deliveries)
+        self.assertEqual(units, village.last_day_report["produced"]["market"])
+        self.assertEqual(sum(entry["coins"] for entry in deliveries), units * 6)
+        self.assertEqual(village.last_day_report["sold"], 3)
+        self.assertGreaterEqual(village.businesses["market"]["stock"]["bread"], 1)
+        self.assertTrue(any("market sold 3 bread" in entry for entry in village.journal))
 
     def test_goods_and_payments_move_between_independent_firms(self):
         village = Village()
@@ -307,7 +313,7 @@ class VillageTests(unittest.TestCase):
         mill_cash = village.businesses["mill"]["cash"]
         village.advance_day()
         self.assertEqual(village.businesses["farm"]["cash"], farm_cash + 2 - 4)
-        self.assertEqual(village.businesses["mill"]["cash"], mill_cash - 2 + 2 * 5 - 4)
+        self.assertEqual(village.businesses["mill"]["cash"], mill_cash - 2 + 2 * 4 - 4)
         self.assertEqual(village.grain, village.businesses["farm"]["stock"]["grain"])
         self.assertEqual(village.flour, village.businesses["mill"]["stock"]["flour"])
 
@@ -329,10 +335,19 @@ class VillageTests(unittest.TestCase):
         slow = Village()
         improved = Village()
         improved.complete_mill_job()
-        for _ in range(4):
+        # Compare equal household demand before migration can occur.
+        for _ in range(2):
             slow.advance_day()
             improved.advance_day()
         self.assertLess(improved.bread_price, slow.bread_price)
+        self.assertIn("market sold 3 bread", improved.journal[0])
+        for _ in range(4):
+            slow.advance_day()
+            improved.advance_day()
+        # Food supply alone cannot justify an extra payroll: wait for a
+        # proven profitable vacancy before inviting another household.
+        self.assertNotIn("home_4", improved.households)
+        self.assertEqual(improved.last_day_report["fed"], 3)
         self.assertIn("market sold 3 bread", improved.journal[0])
         self.assertEqual(improved.coins, 36)
 

@@ -9,6 +9,7 @@ from unittest.mock import patch
 import pygame
 import inventions
 import computation
+import workshop_floor
 from circuit import Circuit, Part
 from economy import Village
 from game import Game
@@ -57,12 +58,14 @@ class InventionTests(unittest.TestCase):
         design["outputs"]["SUM"]=None
         self.assertTrue(all(not row["passed"] for row in inventions.test(village,"adder")))
 
-    def test_arithmetic_shortcuts_cycles_and_grid_expansion_are_rejected(self):
-        for variation in ("arithmetic","cycle","oversize"):
+    def test_arithmetic_shortcuts_cycles_and_invalid_positions_are_rejected(self):
+        for variation in ("arithmetic","cycle","overlap"):
             village=Village(); design=solution("adder")
             if variation == "arithmetic": design["gates"][0]["kind"]="ADD"
             if variation == "cycle": design["gates"][0]["inputs"][0]="G0"
-            if variation == "oversize": design["gates"].append(deepcopy(design["gates"][0]))
+            if variation == "overlap":
+                design["gates"][0]["pos"]=[1,1]
+                design["gates"][1]["pos"]=[1,1]
             village.invention_drafts["adder"]=design
             self.assertTrue(all(not row["passed"] for row in inventions.test(village,"adder")))
             self.assertEqual(village.arithmetic_unlocks,[])
@@ -85,10 +88,10 @@ class InventionTests(unittest.TestCase):
         bench=inventions.Bench(village,"subtractor")
         bench.bits={"A":0,"B":1}; bench.edit()
         bench.tick()
-        self.assertEqual(bench.values["G1"],1)
-        self.assertEqual(bench.values["G2"],0)
+        self.assertEqual(bench.circuit.active[(5,2)],1)
+        self.assertEqual(bench.circuit.active[(7,2)],0)
         bench.tick()
-        self.assertEqual(bench.values["G2"],1)
+        self.assertEqual(bench.circuit.active[(7,2)],1)
         actual,trace,error=inventions.evaluate("subtractor",bench.design,bench.bits)
         self.assertEqual(actual,{"DIFF":1,"BORROW":1})
         self.assertIsNone(error)
@@ -96,40 +99,47 @@ class InventionTests(unittest.TestCase):
     def test_failed_case_can_be_loaded_for_tracing_and_gate_removal_disconnects(self):
         village=Village(); village.invention_drafts["adder"]=solution("adder")
         bench=inventions.Bench(village,"adder")
-        bench.design["gates"][0]["kind"]="OR"
+        bench.circuit.set_part((3,2),Part("OR"))
         bench.run_tests()
-        bench.click((100,218+3*26+5),1)
+        bench.load_case(3)
         self.assertEqual(bench.bits,{"A":1,"B":1})
         self.assertFalse(bench.show_results)
-        bench.tick(); self.assertEqual(bench.values["G0"],1)
-        bench.click((120,290),3)
-        self.assertIsNone(bench.design["outputs"]["SUM"])
-        self.assertIsNone(bench.design["gates"][0]["kind"])
+        bench.tick(); bench.tick(); self.assertEqual(bench.circuit.active[(3,2)],1)
+        bench.circuit.set_part((3,2),None)
+        self.assertFalse(any(tuple(t["source"]) == (3,2) for t in bench.circuit.traces))
 
 
 class InventionIntegrationTests(unittest.TestCase):
     def test_click_locked_palette_opens_lesson_and_leaves_floor_unchanged(self):
-        game=Game(); game.scene="workshop"; floor=game.circuit.snapshot(); game.draw()
-        game.handle_click((1080,510),1)
-        self.assertEqual(game.scene,"invention")
+        game=Game(); game.scene="workshop"; game.draw(); floor=game.circuit.snapshot()
+        game.handle_click((1090,450),1)  # Math group
+        game.draw()
+        game.handle_click((992,496),1)  # Locked ADD
+        self.assertEqual(game.scene,"workshop")
         self.assertEqual(game.invention.key,"adder")
-        self.assertEqual(game.circuit.snapshot(),floor)
+        self.assertEqual(game.invention_context["circuit"].snapshot(),floor)
         game.draw()
 
     def test_ui_can_construct_half_adder_wire_and_unlock(self):
         game=Game(); game.scene="workshop"; game.open_invention(); game.draw()
-        # Place XOR and AND in the two available slots.
-        game.handle_click((380,235),1)
-        game.handle_click((120,290),1)
-        game.handle_click((100,235),1)
-        game.handle_click((335,290),1)
-        for source in ((155,213),(335,213)):
-            game.handle_click(source,1)
-            pin_y=290 if source[0] == 155 else 330
-            for x in (65,280): game.handle_click((x,pin_y),1)
-        game.handle_click((235,309),1); game.handle_click((95,600),1)
-        game.handle_click((450,309),1); game.handle_click((275,600),1)
-        self.assertEqual(game.invention.design,solution("adder"))
+        # The same floor, palette and socket gestures as contracts and calculators.
+        bx,by,cell=game.board_metrics()
+        for kind, pos in (("XOR",(5,2)),("AND",(7,5))):
+            game.select_part(kind)
+            game.handle_click((bx+(pos[0]+.5)*cell,by+(pos[1]+.5)*cell),1)
+        def wire(source,target,pin):
+            start=workshop_floor.socket(game,source,game.circuit.parts[source].ports()[1][0])
+            end=workshop_floor.socket(game,target,game.circuit.parts[target].ports()[0][pin])
+            game.handle_click(start,1)
+            game.handle_click((bx+4*cell,by+4*cell),1)
+            game.handle_click(end,1)
+        for gate in ((5,2),(7,5)):
+            wire((0,3),gate,0)
+            wire((0,6),gate,1)
+        wire((5,2),(15,3),0)
+        wire((7,5),(15,6),0)
+        self.assertEqual(len(game.circuit.traces),6)
+        self.assertTrue(all(t["points"] for t in game.circuit.traces))
         game.test_invention(); self.assertIn("ADD",game.village.arithmetic_unlocks)
         game.draw(); game.close_invention(); game.select_part("ADD")
         self.assertEqual(game.selected,"ADD")
@@ -151,8 +161,9 @@ class InventionIntegrationTests(unittest.TestCase):
         floor=game.circuit.snapshot(); game.load_design(0); game.select_device(0)
         self.assertEqual(game.circuit.snapshot(),floor); self.assertIsNone(game.held_device)
         game.selected="ADD"; game.handle_click((180,180),1)
-        self.assertEqual(game.scene,"invention")
-        self.assertEqual(game.circuit.snapshot(),floor)
+        self.assertEqual(game.scene,"workshop")
+        self.assertEqual(len(game.invention_context["circuit"].parts),3)
+        self.assertFalse(any(p.kind in ("ADD", "DEVICE") for p in game.invention_context["circuit"].parts.values()))
 
     def test_compute_registration_and_running_require_earned_technology(self):
         game=Game(); game.circuit.set_part((4,3),Part("MUL"))
@@ -160,7 +171,7 @@ class InventionIntegrationTests(unittest.TestCase):
         message,rows=computation.approve(game.village,"fuel_quote",game.circuit,{})
         self.assertIn("Invent",message); self.assertEqual(vars(game.village),before)
         game.scene="compute"; game.compute_key="fuel_quote"; game.build_compute()
-        self.assertEqual(game.scene,"invention"); self.assertEqual(game.invention.key,"adder")
+        self.assertEqual(game.scene,"workshop"); self.assertEqual(game.invention.key,"adder")
 
     def test_save_reload_preserves_drafts_unlocks_and_evidence(self):
         with tempfile.TemporaryDirectory() as folder,patch("game.SAVES_DIR",Path(folder)):
@@ -168,6 +179,7 @@ class InventionIntegrationTests(unittest.TestCase):
             game.village.invention_drafts["adder"]=solution("adder")
             game.open_invention(); game.test_invention(); game.close_invention()
             game.village.invention_drafts["comparator"]=solution("comparator")
+            game.village.invention_drafts["adder"]["floor"][-2]["points"]=[[5.5,4.5]]
             game.save_game()
             loaded=Game(); loaded.start_slot(2)
             self.assertEqual(loaded.village.arithmetic_unlocks,["ADD"])

@@ -2,10 +2,16 @@
 from copy import deepcopy
 from dataclasses import dataclass
 from itertools import product
-import pygame
-from circuit import ARITHMETIC
+from circuit import ARITHMETIC, Circuit, Part, edge_terminals
 
 GATES = ("AND", "OR", "XOR", "NOT")
+GRID_X, GRID_Y, GRID_W, GRID_H = 75, 263, 115, 66
+GRID_COLS, GRID_ROWS = 7, 5
+MAX_GATES = GRID_COLS * GRID_ROWS
+
+
+def gate_pos(gate, index):
+    return gate.get("pos", [index % 4 * 2, index // 4 * 2])
 
 
 @dataclass(frozen=True)
@@ -55,8 +61,7 @@ def locked_blocks(village, rows):
 def draft(village, key):
     challenge = CHALLENGES[key]
     return village.invention_drafts.setdefault(key, {
-        "gates": [{"kind": None, "inputs": [None, None]} for _ in range(challenge.slots)],
-        "outputs": {name: None for name in challenge.outputs}})
+        "gates": [], "outputs": {name: None for name in challenge.outputs}, "routes": {}})
 
 
 def expected(key, bits):
@@ -72,10 +77,15 @@ def expected(key, bits):
 
 
 def validate(key, design):
+    if "floor" in design:
+        return validate_floor(key, design["floor"])
     challenge = CHALLENGES[key]
     gates = design.get("gates", [])
-    if len(gates) != challenge.slots or set(design.get("outputs", {})) != set(challenge.outputs):
-        return "Use the prototype's fixed grid and output terminals."
+    if len(gates) > MAX_GATES or set(design.get("outputs", {})) != set(challenge.outputs):
+        return "The canvas is full or an output terminal is missing."
+    positions = [tuple(gate_pos(gate, i)) for i, gate in enumerate(gates) if gate.get("kind")]
+    if len(positions) != len(set(positions)) or any(not (0 <= x < GRID_COLS and 0 <= y < GRID_ROWS) for x, y in positions):
+        return "Move gates into separate canvas cells."
     sources = set(challenge.inputs) | {f"G{i}" for i, gate in enumerate(gates) if gate.get("kind") in GATES}
     dependencies = {}
     for i, gate in enumerate(gates):
@@ -118,11 +128,22 @@ def step(key, design, bits, previous):
 
 
 def evaluate(key, design, bits):
+    if "floor" in design:
+        error = validate_floor(key, design["floor"])
+        if error:
+            return {}, [], error
+        circuit = Circuit.from_snapshot(design["floor"])
+        circuit.switches.update(bits)
+        trace = []
+        for _ in range(len(circuit.parts) + 2):
+            circuit.tick()
+            trace.append(dict(circuit.active))
+        return {name: circuit.output_value(name) for name in CHALLENGES[key].outputs}, trace, None
     error = validate(key, design)
     values, trace = dict(bits), []
     if error:
         return {}, trace, error
-    for _ in range(CHALLENGES[key].slots + 2):
+    for _ in range(len(design["gates"]) + 2):
         values = step(key, design, bits, values)
         trace.append(values.copy())
     return {name: values[source] for name, source in design["outputs"].items()}, trace, None
@@ -146,172 +167,123 @@ def test(village, key):
     return rows
 
 
+def floor_from_draft(key, design):
+    """Bring older slot and sandbox prototypes onto the shared workshop floor."""
+    if "floor" in design:
+        circuit = Circuit.from_snapshot(design["floor"])
+        circuit.layout_terminals(CHALLENGES[key].inputs, CHALLENGES[key].outputs)
+        return circuit
+    challenge = CHALLENGES[key]
+    terminals = edge_terminals(challenge.inputs, challenge.outputs)
+    positions = {f"G{i}": (3 + gate_pos(gate, i)[0], 2 + gate_pos(gate, i)[1])
+                 for i, gate in enumerate(design.get("gates", [])) if gate.get("kind") in GATES}
+    sources = {port["name"]: pos for pos, port in terminals.items() if not port["output"]}
+    sources.update(positions)
+    circuit = Circuit({positions[f"G{i}"]: Part(gate["kind"]) for i, gate in enumerate(design.get("gates", []))
+                       if f"G{i}" in positions}, terminals=terminals)
+    circuit.trace_mode = True
+    def link(source, target, pin, route_key):
+        if source in sources:
+            points = [[max(2, min(13, 3 + (x - GRID_X) / GRID_W)),
+                       max(.5, min(8.5, 2 + (y - GRID_Y) / GRID_H))]
+                      for x, y in design.get("routes", {}).get(route_key, [])]
+            circuit.connect(sources[source], target, pin, points)
+    for i, gate in enumerate(design.get("gates", [])):
+        if f"G{i}" in positions:
+            for pin, source in enumerate(gate["inputs"][:1 if gate["kind"] == "NOT" else 2]):
+                link(source, positions[f"G{i}"], pin, f"G{i}:{pin}")
+    for pos, port in terminals.items():
+        if port["output"]:
+            link(design.get("outputs", {}).get(port["name"]), pos, 0, f"O:{port['name']}")
+    return circuit
+
+
+def validate_floor(key, rows):
+    try:
+        circuit = Circuit.from_snapshot(rows)
+    except (ValueError, TypeError, KeyError):
+        return "This prototype contains an invalid floor plan."
+    challenge = CHALLENGES[key]
+    inputs = [port["name"] for port in circuit.terminals.values() if not port["output"]]
+    outputs = [port["name"] for port in circuit.terminals.values() if port["output"]]
+    if sorted(inputs) != sorted(challenge.inputs) or sorted(outputs) != sorted(challenge.outputs):
+        return "Use this invention's named input and output terminals."
+    for pos, part in circuit.parts.items():
+        if pos not in circuit.terminals and part.kind not in GATES:
+            return "Invent using AND, OR, XOR and NOT gates."
+        for pin in range(len(part.ports()[0])):
+            if not any(tuple(t["target"]) == pos and t["pin"] == pin for t in circuit.traces):
+                return "Connect every gate input and output terminal."
+    dependencies = {pos: [tuple(t["source"]) for t in circuit.traces if tuple(t["target"]) == pos]
+                    for pos in circuit.parts}
+    visited, active = set(), set()
+    def visit(pos):
+        if pos in active:
+            return False
+        if pos in visited:
+            return True
+        active.add(pos)
+        if not all(visit(source) for source in dependencies[pos]):
+            return False
+        active.remove(pos)
+        visited.add(pos)
+        return True
+    if not all(visit(pos) for pos in dependencies):
+        return "Feedback loop detected. Build a forward binary prototype."
+    return None
+
+
 class Bench:
+    """Invention objectives and evidence; editing uses the main workshop UI."""
     def __init__(self, village, key):
         self.village, self.key = village, key
         self.challenge = CHALLENGES[key]
-        self.design = draft(village, key)
-        self.selected = "AND"
-        self.source = None
-        self.bits = {name: 0 for name in self.challenge.inputs}
-        self.values = self.bits.copy()
-        self.ticks = 0
+        previous = draft(village, key)
+        self.circuit = floor_from_draft(key, previous)
+        self.design = {"floor": self.circuit.snapshot(), "port_names": previous.get("port_names", {}).copy()}
+        village.invention_drafts[key] = self.design
         self.rows = []
-        self.message = "Choose a gate, click a slot. Click a source dot, then a destination socket."
+        self.message = "Place gates and draw traces on the workshop floor."
         self.show_results = False
+
+    @property
+    def bits(self):
+        return self.circuit.switches
+
+    @bits.setter
+    def bits(self, values):
+        self.circuit.switches.update(values)
+
+    @property
+    def ticks(self):
+        return self.circuit.tick_count
+
+    def sync(self):
+        self.design["floor"] = self.circuit.snapshot()
 
     def edit(self):
         self.rows = []
         self.show_results = False
-        self.values = self.bits.copy()
-        self.ticks = 0
+        self.circuit.reset()
+        self.sync()
 
     def tick(self):
         self.show_results = False
-        self.values = step(self.key, self.design, self.bits, self.values)
-        self.ticks += 1
+        self.circuit.tick()
 
     def run_tests(self):
+        self.sync()
         self.rows = test(self.village, self.key)
         self.show_results = True
         passed = sum(row["passed"] for row in self.rows)
         if self.challenge.prerequisite and self.challenge.prerequisite not in self.village.arithmetic_unlocks:
-            self.message = f"Complete {self.challenge.prerequisite} first; this lesson cannot grant its unlock yet."
-            return
-        self.message = (f"{passed}/{len(self.rows)} passed. Permanently unlocked {', '.join(self.challenge.unlocks)}!"
-                        if passed == len(self.rows) else self.rows[0]["error"] or f"{passed}/{len(self.rows)} passed. Compare expected and actual output bits.")
+            self.message = f"Complete {self.challenge.prerequisite} first."
+        elif passed == len(self.rows):
+            self.message = f"{passed}/{len(self.rows)} passed. Unlocked {', '.join(self.challenge.unlocks)}!"
+        else:
+            self.message = self.rows[0]["error"] or f"{passed}/{len(self.rows)} passed. Check the failing cases."
 
-    def click(self, point, button):
-        if self.show_results:
-            for i, row in enumerate(self.rows):
-                if button == 1 and pygame.Rect(65, 218 + i * 26, 820, 26).collidepoint(point):
-                    self.bits = row["bits"].copy()
-                    self.edit()
-                    self.message = "Test inputs loaded. Press . to trace one gate layer at a time."
-                    break
-            return
-        for i, name in enumerate(self.challenge.inputs):
-            x = 95 + i * 180
-            if pygame.Rect(x - 15, 156, 140, 42).collidepoint(point) and button == 1:
-                self.bits[name] ^= 1
-                self.edit()
-                return
-            if pygame.Rect(x + 49, 202, 22, 22).collidepoint(point) and button == 1:
-                self.source = name
-                return
-        for i, gate in enumerate(self.design["gates"]):
-            x, y = 65 + i % 4 * 215, 260 + i // 4 * 150
-            if pygame.Rect(x + 159, y + 38, 22, 22).collidepoint(point) and button == 1 and gate["kind"]:
-                self.source = f"G{i}"
-                return
-            count = 1 if gate["kind"] == "NOT" else 2
-            for pin in range(count):
-                if pygame.Rect(x - 12, y + 18 + pin * 40, 24, 24).collidepoint(point):
-                    if button == 3:
-                        gate["inputs"][pin] = None
-                    elif self.source and self.source != f"G{i}":
-                        gate["inputs"][pin] = self.source
-                    self.edit()
-                    return
-            if pygame.Rect(x + 19, y, 135, 100).collidepoint(point):
-                gate["kind"] = self.selected if button == 1 else None
-                if button == 3:
-                    source = f"G{i}"
-                    for other in self.design["gates"]:
-                        other["inputs"] = [None if s == source else s for s in other["inputs"]]
-                    for output, link in self.design["outputs"].items():
-                        if link == source:
-                            self.design["outputs"][output] = None
-                    if self.source == source:
-                        self.source = None
-                self.edit()
-                return
-        for i, name in enumerate(self.challenge.outputs):
-            x = 95 + i * 180
-            if pygame.Rect(x - 12, 588, 24, 24).collidepoint(point):
-                self.design["outputs"][name] = self.source if button == 1 else None
-                self.edit()
-                return
-
-
-def screen(game):
-    from game import rounded, text, PAPER, TEAL, INK, MUTED, GOLD, RED
-    bench = game.invention
-    challenge = bench.challenge
-    surface = game.screen
-    surface.fill((61, 85, 79))
-    rounded(surface, PAPER, (25, 20, 1230, 710), 8)
-    text(surface, game.big, f"INVENTION / {challenge.title.upper()}", 50, 39, TEAL)
-    for i, key in enumerate(CHALLENGES):
-        c = CHALLENGES[key]
-        ready = c.prerequisite is None or c.prerequisite in game.village.arithmetic_unlocks
-        done = all(b in game.village.arithmetic_unlocks for b in c.unlocks)
-        label = f"{'+ ' if done else ''}{'/'.join(c.unlocks)}" + (f" / {c.prerequisite} first" if not ready else "")
-        game.button((50 + i * 218, 89, 208, 34), label, lambda k=key: game.switch_invention(k), active=key == bench.key, enabled=ready, small=True)
-    rounded(surface, (235, 225, 198), (935, 137, 296, 537), 5)
-    text(surface, game.heading, "CHALLENGE", 950, 153, TEAL)
-    for i, line in enumerate(challenge.lesson):
-        text(surface, game.small, line, 950, 193 + i * 25)
-    text(surface, game.tiny, f"Budget: {challenge.slots} logic gates", 950, 411, MUTED)
-    text(surface, game.tiny, f"Tracing: one gate per step ({bench.ticks})", 950, 434, MUTED)
-    text(surface, game.tiny, "Green wires = 1; muted wires = 0", 950, 457, MUTED)
-    game.button((950, 632, 265, 30), "BACK [ESC]", game.close_invention, small=True)
-    game.button((50, 681, 180, 31), "TEST ALL [T]", game.test_invention, active=True, small=True)
-    game.button((244, 681, 140, 31), "STEP [.]", bench.tick, small=True)
-    game.button((398, 681, 160, 31), "EDIT / TRACE", lambda: setattr(bench, "show_results", False), small=True)
-    text(surface, game.tiny, bench.message[:90], 575, 691, TEAL)
-    if bench.show_results:
-        input_names = ("A1", "A0", "B1", "B0") if bench.key == "multiplier" else challenge.inputs
-        input_label = "A1 A0 | B1 B0" if bench.key == "multiplier" else "A B"
-        text(surface, game.small, f"{input_label:<16}EXPECTED             ACTUAL          RESULT", 65, 156, MUTED)
-        names = (("P3", "P2", "P1", "P0") if bench.key == "multiplier" else
-                 ("CARRY", "SUM") if bench.key == "adder" else
-                 ("BORROW", "DIFF") if bench.key == "subtractor" else challenge.outputs)
-        text(surface, game.tiny, "Output order: " + ", ".join(names), 65, 185, MUTED)
-        text(surface, game.tiny, "Click a case to trace its inputs.", 455, 185, TEAL)
-        for i, row in enumerate(bench.rows):
-            inp = "".join(str(row["bits"][k]) for k in input_names)
-            if bench.key == "multiplier":
-                inp = inp[:2] + "|" + inp[2:]
-            target = "".join(str(row["expected"][k]) for k in names)
-            actual = "".join(str(row["actual"].get(k, "?")) for k in names)
-            color = TEAL if row["passed"] else RED
-            text(surface, game.small, f"{inp:<16}{target:<21}{actual:<16}{'PASS' if row['passed'] else 'FAIL'}", 65, 218 + i * 26, color)
-        return
-    source_points = {name: (155 + i * 180, 213) for i, name in enumerate(challenge.inputs)}
-    source_points.update({f"G{i}": (235 + i % 4 * 215, 309 + i // 4 * 150) for i in range(challenge.slots)})
-    def wire(source, end):
-        if source in source_points:
-            start = source_points[source]
-            color = TEAL if bench.values.get(source, bench.bits.get(source, 0)) else (159, 154, 137)
-            mid_y = end[1] - 12
-            pygame.draw.lines(surface, color, False, (start, (start[0], mid_y), (end[0] - 15, mid_y), (end[0] - 15, end[1]), end), 3)
-    for i, gate in enumerate(bench.design["gates"]):
-        x, y = 65 + i % 4 * 215, 260 + i // 4 * 150
-        for pin in range(1 if gate["kind"] == "NOT" else 2):
-            wire(gate["inputs"][pin], (x, y + 30 + pin * 40))
-    for i, name in enumerate(challenge.outputs):
-        wire(bench.design["outputs"][name], (95 + i * 180, 600))
-    for i, name in enumerate(challenge.inputs):
-        x = 95 + i * 180
-        game.button((x - 15, 156, 140, 42), f"{name} = {bench.bits[name]}", lambda n=name: (bench.bits.update({n: 1 - bench.bits[n]}), bench.edit()), small=True)
-        pygame.draw.circle(surface, GOLD if bench.source == name else TEAL, (x + 60, 213), 8)
-    for i, gate in enumerate(bench.design["gates"]):
-        x, y = 65 + i % 4 * 215, 260 + i // 4 * 150
-        rounded(surface, (220, 203, 166), (x + 19, y, 135, 100), 7)
-        text(surface, game.small, f"G{i + 1}: {gate['kind'] or 'place gate'}", x + 25, y + 16)
-        text(surface, game.small, str(bench.values.get(f"G{i}", 0)), x + 81, y + 62, TEAL)
-        for pin in range(1 if gate["kind"] == "NOT" else 2):
-            pygame.draw.circle(surface, TEAL if gate["inputs"][pin] else RED, (x, y + 30 + pin * 40), 7)
-            label = gate["inputs"][pin]
-            if label:
-                label = f"G{int(label[1:]) + 1}" if label.startswith("G") else label
-                text(surface, game.tiny, label, x + 23, y + 42 + pin * 19, MUTED)
-        pygame.draw.circle(surface, GOLD if bench.source == f"G{i}" else TEAL, (x + 170, y + 49), 8)
-    for i, name in enumerate(challenge.outputs):
-        x = 95 + i * 180
-        pygame.draw.circle(surface, TEAL if bench.design["outputs"][name] else RED, (x, 600), 8)
-        text(surface, game.small, f"{name}: {bench.values.get(bench.design['outputs'][name], 0)}", x - 12, 626)
-    for i, kind in enumerate(GATES):
-        game.button((65 + i * 130, 223, 115, 26), kind, lambda k=kind: setattr(bench, "selected", k), active=bench.selected == kind, small=True)
-    text(surface, game.tiny, "Right click a gate to remove it; right click a socket to disconnect.", 65, 660, MUTED)
+    def load_case(self, index):
+        self.bits = self.rows[index]["bits"]
+        self.edit()
+        self.message = "Case loaded. Step through the workshop signals."
