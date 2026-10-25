@@ -277,7 +277,7 @@ class Game:
         self.focus_index = -1
         self.focus_context = None
 
-    def start_slot(self, slot: int):
+    def start_slot(self, slot: int, *, introduce=False):
         self.component_info = None
         data = load_slot(slot)
         if data == "unreadable":
@@ -407,6 +407,17 @@ class Game:
         self.save_preferences()
         if not data:
             self.save_game()
+            if introduce:
+                self.scene = "menu"
+                self.menu_page = "new_save"
+                self.buttons.clear()
+                self.focus_index = -1
+
+    def finish_new_save_intro(self):
+        self.menu_page = "title"
+        self.scene = "town"
+        self.buttons.clear()
+        self.focus_index = -1
 
     def save_game(self):
         opening_chapter.observe(self.village)
@@ -868,7 +879,7 @@ class Game:
             self.menu_page = "slots"
             self.toast("All slots are in use. Choose a save to continue or delete a slot.")
         else:
-            self.start_slot(slot)
+            self.start_slot(slot, introduce=True)
 
     def focus_navigation(self, event):
         """Keyboard focus is limited to menus, leaving circuit and receiver keys intact."""
@@ -1435,6 +1446,10 @@ class Game:
                 self.submit_design(("install", "sell", "license")[key - pygame.K_1])
             return
         if self.scene == "menu":
+            if self.menu_page == "new_save":
+                if key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE, pygame.K_ESCAPE):
+                    self.finish_new_save_intro()
+                return
             if self.menu_page == "introduction":
                 if key in (pygame.K_ESCAPE, pygame.K_BACKSPACE):
                     self.menu_page = "title"
@@ -1454,7 +1469,7 @@ class Game:
                     self.pending_delete = None
                 return
             if pygame.K_1 <= key <= pygame.K_5:
-                self.start_slot(key - pygame.K_1 + 1)
+                self.start_slot(key - pygame.K_1 + 1, introduce=True)
             elif key in (pygame.K_ESCAPE, pygame.K_BACKSPACE):
                 self.menu_page = "title"
             return
@@ -2013,6 +2028,8 @@ class Game:
             self.draw_save_slots()
         elif self.menu_page == "introduction":
             self.draw_introduction()
+        elif self.menu_page == "new_save":
+            self.draw_introduction(new_save=True)
         else:
             self.draw_title_menu()
 
@@ -2054,7 +2071,7 @@ class Game:
         self.button((535, 586, 210, 41), "Exit game", self.exit_game, small=True)
         self.centered_text(self.tiny, "by Luca Molinari", 682, (207, 195, 159))
 
-    def draw_introduction(self):
+    def draw_introduction(self, new_save=False):
         ui_theme.backdrop(self.screen)
         rounded(self.screen, (49, 63, 62), (145, 27, 990, 707), 5)
         rounded(self.screen, (124, 75, 58), (153, 35, 974, 691), 4, 7)
@@ -2065,16 +2082,21 @@ class Game:
         rounded(self.screen, (240, 222, 184), (310, 187, 660, 382), 8)
         rounded(self.screen, (145, 88, 57), (298, 177, 684, 18), 8)
         rounded(self.screen, (145, 88, 57), (298, 561, 684, 18), 8)
-        self.centered_text(self.heading, "A NOTE FOR THE ENGINEER", 228, TEAL)
+        self.centered_text(self.heading, "A SMALL BEGINNING", 218, TEAL)
         self.draw_lines([
-            "You are Boole, an engineer in Copperside.",
-            "Build a workshop and a livelihood.",
-            "Make useful goods. Give machines your logic.",
-            "Shannon is here to see what we can make.",
-        ], 370, 295, font=self.font, spacing=38, color=INK)
-        self.centered_text(self.tiny, "Enter your workshop. Your first bench costs 4c.", 482, COPPER)
-        self.button((390, 631, 220, 45), "BACK", lambda: setattr(self, "menu_page", "title"), small=True)
-        self.button((670, 631, 220, 45), "LOAD GAME", lambda: setattr(self, "menu_page", "slots"), active=True, small=True)
+            "You are Boole, a young inventor in Copperside.",
+            "Here, steam turns the wheels of everyday life.",
+            "A small workshop is yours to make something of.",
+            "Build useful machines. Help your neighbours.",
+            "Beyond the village, old mechanisms still wait.",
+            "Who built them, and what might they reveal?",
+            "With Shannon beside you, follow your curiosity.",
+        ], 357, 280, font=self.font, spacing=33, color=INK)
+        if new_save:
+            self.button((490, 622, 300, 45), "BEGIN  [Enter]", self.finish_new_save_intro, active=True, small=True)
+        else:
+            self.button((390, 631, 220, 45), "BACK", lambda: setattr(self, "menu_page", "title"), small=True)
+            self.button((670, 631, 220, 45), "LOAD GAME", lambda: setattr(self, "menu_page", "slots"), active=True, small=True)
 
     def draw_save_slots(self):
         ui_theme.backdrop(self.screen)
@@ -2109,7 +2131,7 @@ class Game:
                     detail += "  /  Existing save"
             text(self.screen, self.tiny, detail, 230, y + 46, MUTED if data is None else TEAL, width=590)
             if data is None:
-                self.button((843, y + 14, 203, 43), "CREATE", lambda s=slot: self.start_slot(s), active=True, small=True)
+                self.button((843, y + 14, 203, 43), "CREATE", lambda s=slot: self.start_slot(s, introduce=True), active=True, small=True)
             else:
                 self.button((843, y + 14, 117, 43), "LOAD", lambda s=slot: self.start_slot(s), active=data != "unreadable", small=True, enabled=data != "unreadable")
                 self.button((968, y + 14, 78, 43), "DELETE", lambda s=slot: self.request_delete_slot(s), small=True)
@@ -2218,7 +2240,7 @@ class Game:
     def draw(self):
         if self.opening_screen is not None:
             self.buttons.clear()
-            self.opening_screen.draw(self.screen, self.heading)
+            self.opening_screen.draw(self.screen, self.heading, self.menu_title)
             self.viewport.present()
             return
         context = (self.scene, self.menu_page, self.pause_menu_open, self.settings_open, self.controls_open)

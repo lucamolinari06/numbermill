@@ -3,6 +3,7 @@ from math import cos, pi
 from pathlib import Path
 
 import pygame
+import ui_theme
 
 
 class OpeningScreen:
@@ -55,7 +56,7 @@ class OpeningScreen:
             self.cache[key] = surface
         return self.cache[key]
 
-    def draw(self, screen, font):
+    def draw(self, screen, font, title_font=None):
         size = screen.get_size()
         index, blend = self.frame()
         screen.fill((12, 21, 24))
@@ -69,6 +70,13 @@ class OpeningScreen:
                 next_image.set_alpha(round(255 * blend))
                 screen.blit(next_image, (0, 0))
                 next_image.set_alpha(None)
+        # Keep the existing mill seal and wordmark legible on every backdrop.
+        title = (title_font or font).render("NUMBERMILL", False, (249, 234, 195))
+        brand = pygame.Surface((title.get_width() + 120, 96), pygame.SRCALPHA)
+        pygame.draw.rect(brand, (12, 29, 31, 195), brand.get_rect(), border_radius=5)
+        ui_theme.mill_seal(brand, (47, 48), 27)
+        brand.blit(title, title.get_rect(midleft=(98, 48)))
+        screen.blit(brand, (28, 28))
         # A subtle lower veil keeps the prompt readable over every scene.
         veil = pygame.Surface(size, pygame.SRCALPHA)
         for y in range(size[1] * 3 // 4, size[1]):
