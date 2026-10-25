@@ -2,7 +2,7 @@
 
 A village engineering game about building a livelihood with Shannon, your steam-computer companion. Arrange a physical manufacturing workshop, buy local materials, make goods, and automate machines with circuits. Explore Mosswater from above, then climb Boiler Tower with a player-controlled steam jetpack in side view. Village commissions, inventions, and computing services remain available as side activities.
 
-See [ROADMAP.md](ROADMAP.md) for current manufacturing progress and the planned exploration, gadgets, technology discoveries, and hackable hazards.
+See [ROADMAP.md](docs/ROADMAP.md) for current manufacturing progress and the planned exploration, gadgets, technology discoveries, and hackable hazards.
 
 ![Title menu](testing-screenshots/presentation-overhaul/title.png)
 ![Copperside river cottages](testing-screenshots/town-overhaul/river-cottages.png)
@@ -20,7 +20,7 @@ Fullscreen uses the current monitor's native resolution and exact bounds, includ
 
 The October 25 art pass refreshes Copperside architecture, cottage roofs, gardens and work yards; Mosswater woodland/marsh/ruins; the tower's furnace, gearworks and mountain-window sections; workshop machines, circuit surfaces, portraits and supporting menus. All ponds and rivers use natural outlines shared with collision. Old saves affected by changed shorelines recover onto nearby dry ground.
 
-See [VISUAL_STYLE.md](VISUAL_STYLE.md) for the scene inventory and reproducible capture commands. `scripts/capture_presentation.py --play` opens a disposable preview; `--smoke` checks real resize/fullscreen presentation and closes automatically. These previews use isolated saves and preferences. Audio, fuller character expressions, connected homecoming scenes and the new regions remain planned.
+See [VISUAL_STYLE.md](docs/VISUAL_STYLE.md) for the scene inventory and reproducible capture commands. `scripts/capture_presentation.py --play` opens a disposable preview; `--smoke` checks real resize/fullscreen presentation and closes automatically. These previews use isolated saves and preferences. Audio, fuller character expressions, connected homecoming scenes and the new regions remain planned.
 
 ## Start manufacturing
 
