@@ -1,7 +1,8 @@
 """Shared full-screen village ledger; each section has room to grow."""
 
 import pygame
-from town import LOCATIONS, WORLD_W, WORLD_H, LABELS, HOME_STREET_Y, ROAD_RECTS
+from town import LOCATIONS, WORLD_W, WORLD_H, LABELS, HOME_STREET_Y
+import town_ground
 from ui_theme import INK, MUTED, PAPER, TEAL, COPPER, GOLD, draw_panel, backdrop, fit_text, wrapped_text
 from office_ui import frame, navigation_rail
 
@@ -138,8 +139,7 @@ def draw(game):
         for xx in (bridge_left, bridge_right):
             pygame.draw.line(screen, (101, 79, 52), (xx, bridge_top), (xx, bridge_bottom), 2)
         screen.set_clip(old_clip)
-        for rx, ry, rw, rh in ROAD_RECTS:
-            pygame.draw.rect(screen, (205, 194, 156), (*point(rx, ry), max(2, round(rw * sx)), max(2, round(rh * sy))))
+        town_ground.draw_map(screen, point, (205, 194, 156))
         captions = []
         short = {'fuel_yard': ("Mely's", 'Fuel Yard'), 'parts_shop': ("Luca's", 'Repair Shop'),
                  'grace_shop': ("Grace's", 'Workshop'), 'east_bakery': ("Jun's", 'Bakery'),

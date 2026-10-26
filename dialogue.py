@@ -316,11 +316,9 @@ def portrait(surface, name, rect):
         sprite(image, (55, 90), 0)
         surface.blit(pygame.transform.scale(image, (37, 50)), (rect.x + 4, rect.y - 4))
         return
-    coats = {'Ada': (141, 91, 76), 'Bram': (96, 119, 87), 'Agnes': (156, 127, 68),
-             'Dara': (91, 115, 148), 'Mely': COPPER, 'Luca': (65, 115, 130),
-             'Grace': (122, 94, 138), 'Iris': (126, 137, 82), 'Otto': (121, 104, 82), 'Tess': (75, 129, 122)}
+    from resident_performance import coat_for
     image = pygame.Surface((72, 80), pygame.SRCALPHA)
-    Town._villager(None, image, 36, 45, coats.get(name, TEAL), name=name, shadow_color=None)
+    Town._villager(None, image, 36, 45, coat_for(name), name=name, shadow_color=None)
     surface.blit(image, rect.topleft, (14, 2, rect.w, rect.h))
 
 

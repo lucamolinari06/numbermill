@@ -6,6 +6,8 @@ driven by the town's paused visual clock; it never mutates economic state.
 import math
 import random
 import pygame
+import town_roofs
+import town_ground
 
 INK = (43, 55, 51)
 TIMBER = (95, 69, 48)
@@ -34,6 +36,51 @@ def window(s, x, y, width=34, height=38, *, arched=False, shutters=False):
             rect(s, (75, 105, 94), (xx, y+1, 10, height-1), 1)
             for yy in range(y+5, y+height-2, 7):
                 pygame.draw.line(s, (111, 137, 112), (xx+2, yy), (xx+7, yy), 1)
+
+
+def facade_windows(point, key):
+    """Shared glazing positions for the architecture and cached evening light."""
+    x, y = point
+    home = key.startswith('home_')
+    width = 180 if home else 255
+    left = x-width//2
+    windows = []
+    if home:
+        windows.extend(((left+15, y-104, 30, 34, False, True),
+                        (left+width-45, y-104, 30, 34, False, True)))
+    elif key not in ('mill', 'fuel_yard', 'foundry'):
+        windows.append((left+22, y-104, 34, 34, key in ('bakery', 'market'), False))
+    if not home and key not in ('bakery', 'foundry', 'sawmill', 'fuel_yard'):
+        windows.append((left+width-58, y-104, 34, 34, key == 'market', False))
+    return windows
+
+
+def window_light(image, bounds, point, key):
+    """Cache only visible glass pixels, retaining mullions, shutters and awnings."""
+    light = pygame.Surface(image.get_size(), pygame.SRCALPHA)
+    colors = {GLASS: (239, 185, 99, 240), (87, 139, 139): (220, 151, 73, 225),
+              (175, 205, 186): (255, 219, 146, 240), (132, 175, 164): (249, 199, 117, 240)}
+    glazing = facade_windows(point, key)
+    if key.startswith('home_') or key == 'parts_shop':
+        glazing.append((point[0]-40, point[1]-188, 20, 21, False, False))
+    if key in ('workshop', 'grace_shop'):
+        gx = point[0]+12 if key == 'grace_shop' else point[0]-38
+        glazing.append((gx-12, point[1]-204, 59, 22, False, False))
+        colors[(102, 155, 155)] = (239, 185, 99, 225)
+    for x, y, width, height, _, _ in glazing:
+        area = pygame.Rect(x-bounds.x, y-bounds.y, width, height).clip(image.get_rect())
+        for xx in range(area.left, area.right):
+            for yy in range(area.top, area.bottom):
+                pixel = tuple(image.get_at((xx, yy)))
+                if pixel[:3] in colors and pixel[3]:
+                    light.set_at((xx, yy), colors[pixel[:3]])
+    # A quiet, stepped lantern halo stays on the facade, above the door approach.
+    x, y = point[0]-bounds.x, point[1]-bounds.y
+    lx, ly = (x, y-114) if key.startswith('home_') else (x+43, y-73)
+    pygame.draw.rect(light, (248, 179, 82, 12), (lx-16, ly-14, 33, 29), border_radius=6)
+    pygame.draw.rect(light, (255, 193, 101, 19), (lx-10, ly-10, 21, 21), border_radius=3)
+    pygame.draw.rect(light, (255, 220, 145, 170), (lx-2, ly-4, 4, 7))
+    return light
 
 
 def gear(s, center, radius, angle=0., color=EDGE):
@@ -94,26 +141,7 @@ def roof(s, x, y, width, key, color):
         points = [(left-8,high+8),(left+width+8,high+29),(left+width+8,low),(left-8,low)]
     else:
         points = [(left-9,low),(left+13,high),(left+width-19,high),(left+width+9,low)]
-    pygame.draw.polygon(s, TIMBER, [(xx,yy+5) for xx,yy in points])
-    pygame.draw.polygon(s,color,points)
-    # Texture through a tiny mask keeps every tile inside the roof silhouette.
-    bounds = pygame.Rect(left-11, high-23, width+23, 91)
-    tiles = pygame.Surface(bounds.size, pygame.SRCALPHA)
-    mask = pygame.Surface(bounds.size, pygame.SRCALPHA)
-    pygame.draw.polygon(mask,(255,255,255),[(xx-bounds.x,yy-bounds.y) for xx,yy in points])
-    for row in range(6):
-        yy = row*16
-        for column in range(-1, width//27+2):
-            xx = column*27+(13 if row%2 else 0)
-            col = tuple(min(255,c+((column+row)%3)*7) for c in color)
-            rect(tiles,col,(xx+1,yy+1,25,14),1)
-            pygame.draw.line(tiles,tuple(max(0,c-18) for c in color),(xx+1,yy+14),(xx+25,yy+14),2)
-            pygame.draw.line(tiles,tuple(min(255,c+28) for c in color),(xx+3,yy+3),(xx+21,yy+3),1)
-    tiles.blit(mask,(0,0),special_flags=pygame.BLEND_RGBA_MULT)
-    s.blit(tiles,bounds)
-    pygame.draw.lines(s,tuple(min(255,c+44) for c in color),False,points[:-1],3)
-    pygame.draw.line(s,(76,67,52),(left-9,low+3),(left+width+9,low+3),4)
-    pygame.draw.line(s,(194,158,100),(left-8,low+1),(left+width+8,low+1),2)
+    town_roofs.draw(s, points, key, color)
     if key == 'foundry':
         # Attached louvered roof vent, with a cap and a shaded vertical face.
         rect(s,(46,65,61),(x-24,y-220,48,23),1)
@@ -186,13 +214,8 @@ def building(s, point, key, heading, small, color, label):
     chimney(s,left+width-45,y,key)
     roof(s,x,y,width,key,color)
     # Facade windows remain secondary to each trade's large identifying object.
-    if home:
-        window(s,left+15,y-104,30,34,shutters=True)
-        window(s,left+width-45,y-104,30,34,shutters=True)
-    elif key not in ('mill','fuel_yard','foundry'):
-        window(s,left+22,y-104,34,34,arched=key in ('bakery','market'),shutters=home)
-    if not home and key not in ('bakery','foundry','sawmill','fuel_yard'):
-        window(s,left+width-58,y-104,34,34,arched=key=='market',shutters=home)
+    for wx, wy, ww, wh, arched, shutters in facade_windows(point, key):
+        window(s, wx, wy, ww, wh, arched=arched, shutters=shutters)
     # A consistently centered, inset door preserves the established entry point.
     rect(s,(76,65,47),(x-27,y-92,54,68),5)
     rect(s,(148,103,61),(x-22,y-87,44,63),3)
@@ -335,12 +358,13 @@ def river_motion(surface,camera,width,height,seconds):
         pygame.draw.line(surface,(136,185,179),(x-ox,y-oy),(x+length-ox,y-oy),1)
 
 
-WELL_COURT = pygame.Rect(819, 829, 126, 75)
+WELL_COURT = town_ground.WELL_COURT
 
 
 def ground_details(surface):
     """Flat district materials add character without changing walkable ground."""
     # A small worn stone court anchors the existing well and garden.
+    under_court=surface.subsurface(WELL_COURT).copy()
     pygame.draw.ellipse(surface,(110,132,91),WELL_COURT)
     pygame.draw.ellipse(surface,(167,162,121),(824,834,116,65))
     for i in range(18):
@@ -348,17 +372,21 @@ def ground_details(surface):
         x,y=882+math.cos(a)*51,866+math.sin(a)*27
         pygame.draw.line(surface,(194,184,142),(x-4,y),(x+4,y),5)
     pygame.draw.ellipse(surface,(181,174,132),(843,847,78,39))
-    # Drain grates and cobbled verges distinguish the working artisan street.
+    # Break the rim at the actual approaches. A green outline or paving ring
+    # across a path mouth reads as a texture seam even though depth is correct.
+    trail=town_ground.footpath_surface(surface.get_size())
+    inner=pygame.Surface(WELL_COURT.size,pygame.SRCALPHA)
+    pygame.draw.ellipse(inner,(255,255,255),(13,12,100,53))
+    for xx in range(WELL_COURT.width):
+        for yy in range(WELL_COURT.height):
+            wx,wy=WELL_COURT.x+xx,WELL_COURT.y+yy
+            if trail.get_at((wx,wy)).a and not inner.get_at((xx,yy)).a:
+                surface.set_at((wx,wy),under_court.get_at((xx,yy)))
+    # Drain grates sit at the working street's southern shoulders.
     for x in (1810,2020,2280,2490):
-        rect(surface,(103,113,91),(x,773,66,10),2)
-        for xx in range(x+5,x+61,7):pygame.draw.line(surface,(61,82,74),(xx,776),(xx,780),2)
-        pygame.draw.line(surface,(175,164,117),(x+2,773),(x+64,773),1)
-    # A low, walkable river approach terminates in the existing bridge.
-    for x in range(950,1285,27):
-        rect(surface,(148,147,106),(x,1430,23,13),4)
-        pygame.draw.line(surface,(180,171,123),(x+4,1432),(x+18,1432),1)
-    for y in range(1392,1460,17):
-        rect(surface,(166,154,111),(1096,y,47,12),3)
+        rect(surface,(103,113,91),(x,720,45,9),2)
+        for xx in range(x+5,x+40,7):pygame.draw.line(surface,(61,82,74),(xx,722),(xx,726),2)
+        pygame.draw.line(surface,(175,164,117),(x+2,720),(x+43,720),1)
 
 
 def planting_clusters(surface,layout,exclusions):
@@ -372,6 +400,8 @@ def planting_clusters(surface,layout,exclusions):
             yy=round(y+math.sin(angle)*rng.randrange(12,32))
             bounds=pygame.Rect(xx-5,yy-8,12,12)
             if any(bounds.colliderect(area) for area in exclusions):continue
+            if not town_ground.clears_road(bounds):continue
+            if not town_ground.clears_garden(bounds):continue
             pygame.draw.line(surface,(72,113,69),(xx,yy+2),(xx,yy-6),1)
             pygame.draw.line(surface,(104,143,77),(xx-4,yy-3),(xx,yy),2)
             pygame.draw.line(surface,(127,155,88),(xx+1,yy-4),(xx+4,yy-6),2)
@@ -386,54 +416,85 @@ def building_effects(surface,camera,key,point,seconds,working=False,evening=0.):
     left=x-width//2
     if key=='mill':
         wheel(surface,left+46,y-66,seconds*.38 if working else 0.)
-    if working and key in ('bakery','foundry'):
-        cx=left+width-30 if key=='bakery' else left+52
+    if key=='sawmill':
+        gear(surface,(left+45,y-48),21,seconds*.35 if working else 0.,color=(159,174,158))
+    elif key in ('workshop','parts_shop','toolmaker','grace_shop'):
+        gear(surface,(left+width-31,y-46),19,seconds*.45 if working else 0.)
+    bakery = key in ('bakery', 'east_bakery')
+    if bakery:
+        rect(surface,(64,59,45),(left+width-51,y-61,26,20),6)
+    elif key=='foundry':
+        # Clear the baked-in flame silhouettes when production stops.
+        rect(surface,(47,51,45),(left+27,y-83,49,46))
+    if working and (bakery or key=='foundry'):
+        cx=left+width-30 if bakery else left+52
         cy=y-52
         for i in range(3):
             flicker=math.sin(seconds*7+i*3)
             pygame.draw.polygon(surface,(244,176+i*13,76),[(cx-12+i*8,cy+12),(cx-9+i*8,cy-6-flicker*6),(cx-5+i*8,cy+12)])
-    if working and key in ('mill','bakery','foundry','workshop','parts_shop','grace_shop'):
+    if working and key in ('mill','bakery','east_bakery','foundry','workshop','parts_shop'):
         chimney_x=left+width-34
         for i in range(4):
             age=(seconds*.31+i*.24)%1.
             puff=pygame.Surface((32,28),pygame.SRCALPHA)
             pygame.draw.ellipse(puff,(220,220,190,round((1-age)*80)),(1,1,12+round(age*16),8+round(age*13)))
             surface.blit(puff,(chimney_x-7+round(age*15),y-241-round(age*35)))
-    if evening>0:
-        # Warm glass and doorstep lanterns, clipped to their own facade.
-        glow=pygame.Surface((62,50),pygame.SRCALPHA)
-        pygame.draw.ellipse(glow,(255,186,80,round(34*evening)),(0,0,62,50))
-        surface.blit(glow,(x+12,y-97))
 
 
 def clothing(surface,x,y,name,facing,moving=False,phase=0.):
     """Extra character silhouettes retain original eyes, feet and hit targets."""
     front=facing!='north'
+    side=facing in ('east','west')
+    sign=-1 if facing=='west' else 1
     if name in ('Agnes','Dara','Bram'):
         apron=(215,198,153) if name=='Agnes' else (167,176,151) if name=='Dara' else (147,119,76)
         if front:
-            pygame.draw.polygon(surface,apron,[(x-6,y-11),(x+6,y-11),(x+9,y+8),(x-8,y+8)])
-            rect(surface,(110,101,75),(x-4,y-2,9,6),1)
+            if side:
+                pygame.draw.polygon(surface,apron,[(x+sign*3,y-11),(x+sign*9,y-11),(x+sign*11,y+8),(x+sign*2,y+8)])
+                rect(surface,(110,101,75),(x+(4 if sign>0 else -9),y-2,5,6),1)
+            else:
+                pygame.draw.polygon(surface,apron,[(x-6,y-11),(x+6,y-11),(x+9,y+8),(x-8,y+8)])
+                rect(surface,(110,101,75),(x-4,y-2,9,6),1)
         else:
             pygame.draw.line(surface,apron,(x-8,y),(x+8,y),2)
+            pygame.draw.lines(surface,apron,False,[(x-3,y+5),(x,y),(x+4,y+5)],2)
         if name=='Bram':
             rect(surface,(97,112,81),(x-12,y-40,25,5),2)
             rect(surface,(122,134,93),(x-7,y-44,17,7),3)
         elif name=='Agnes':
-            pygame.draw.circle(surface,(186,151,102),(x-10,y-35),5)
+            bun_x=x-sign*10 if side else x-10
+            pygame.draw.circle(surface,(186,151,102),(bun_x,y-35),5)
             pygame.draw.line(surface,(229,204,153),(x-10,y-40),(x+9,y-37),3)
+        else:  # Dara's tied headcloth remains visible from behind.
+            cloth=(120,166,167)
+            rect(surface,cloth,(x-11,y-39,22,5),1)
+            tail=x-sign*10 if side else x+8
+            pygame.draw.polygon(surface,cloth,[(tail-3,y-35),(tail+3,y-35),(tail+4,y-25),(tail,y-28)])
     elif name=='Mely':
+        if facing!='south':
+            bun_x=x-sign*10 if side else x+5
+            rect(surface,(71,55,46),(bun_x-4,y-32,8,9),2)
+            pygame.draw.line(surface,(239,188,119),(bun_x-3,y-29),(bun_x+3,y-29),2)
         shawl=(200,151,98)
         pygame.draw.polygon(surface,shawl,[(x-12,y-15),(x-3,y-12),(x+11,y-15),(x+10,y-7),(x-11,y-9)])
         pygame.draw.line(surface,(239,188,119),(x-10,y-14),(x+8,y-11),1)
         if front:pygame.draw.circle(surface,(235,194,112),(x+3,y-10),2)
     elif name=='Luca':
+        if facing!='north':
+            pygame.draw.line(surface,(151,143,119),(x-sign*7 if side else x-9,y-30),
+                             (x-sign*7 if side else x-9,y-23),2)
         if front:
             rect(surface,(108,82,58),(x-7,y-9,13,16),2)
             pygame.draw.line(surface,(202,161,94),(x-5,y-5),(x+4,y-5),2)
             pygame.draw.line(surface,(168,180,162),(x+2,y-7),(x+2,y+2),2)
         else:pygame.draw.line(surface,(191,151,92),(x-8,y+1),(x+8,y+1),2)
     elif name=='Grace':
+        # A tied-back braid, clear of the established wooden leg.
+        braid_x=x-sign*11 if side else x+9
+        if facing!='south':
+            swing=round(math.sin(phase)*2) if moving else 0
+            pygame.draw.lines(surface,(157,108,66),False,[(braid_x,y-32),(braid_x+2,y-22),(braid_x+swing,y-14)],4)
+            rect(surface,(206,164,103),(braid_x-2+swing,y-17,5,3),1)
         if front:
             pygame.draw.polygon(surface,(74,82,78),[(x-7,y-11),(x+7,y-11),(x+8,y+6),(x-6,y+6)])
             pygame.draw.line(surface,(186,148,94),(x-6,y-6),(x+6,y-6),2)
@@ -442,6 +503,25 @@ def clothing(surface,x,y,name,facing,moving=False,phase=0.):
         rect(surface,(184,151,91),(x-14,y-38,28,4),2)
         rect(surface,(207,176,112),(x-8,y-45,17,8),3)
         pygame.draw.line(surface,(117,92,55),(x-8,y-40),(x+9,y-40),2)
+    elif name in ('Rowan','Saffron','Felix','Wren','Hugo','Alma','Perry','Cleo','Jun'):
+        if name in ('Rowan','Felix','Hugo'):
+            cap={'Rowan':(157,128,83),'Felix':(99,128,149),'Hugo':(172,130,91)}[name]
+            rect(surface,cap,(x-10,y-42,20,8),2)
+            pygame.draw.line(surface,(66,66,55),(x-12,y-35),(x+12,y-35),2)
+        elif name in ('Wren','Jun'):
+            rect(surface,(208,180,118),(x-14,y-37,28,4),1)
+            rect(surface,(182,149,91),(x-8,y-43,16,8),2)
+        elif name in ('Saffron','Alma'):
+            pygame.draw.polygon(surface,(229,191,130),[(x-12,y-16),(x,y-11),(x+12,y-16),(x+9,y-6),(x-9,y-6)])
+            pygame.draw.circle(surface,(216,163,102),(x-sign*10,y-34),4)
+        else:
+            rect(surface,(180,160,119),(x-10,y-16,20,4),1)
+            tail=x-sign*8 if side else x+7
+            rect(surface,(180,160,119),(tail-2,y-13,4,15),1)
+        if facing=='north':
+            pygame.draw.line(surface,(193,169,118),(x-8,y-10),(x+8,y+4),2)
+        else:
+            rect(surface,(193,169,118),(x+(4 if side and sign>0 else -8),y-5,6,8),1)
 
 
 def activity_prop(surface,x,y,person,seconds,moving):

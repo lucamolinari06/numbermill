@@ -37,13 +37,16 @@ class SceneDepthTests(unittest.TestCase):
                     t.player_x,t.player_y=(tx,ay) if who=="Boole" else (tx+100,ty)
                     t.display_people["Ada"]=[tx,ay] if who=="Ada" else [0,0]
                     t.companion.position=(tx,ay) if who=="Shannon" else (0,0)
-                    def person(surface,x,y,*args):
+                    def person(surface,x,y,*args,**kwargs):
                         if args[-1]==who:marker(surface,x,y)
-                    with patch.object(t,"_villager",side_effect=person),patch.object(t.companion,"draw",side_effect=marker if who=="Shannon" else lambda *a:None):
+                    with patch.object(t,"_villager",side_effect=person),patch.object(t.companion,"draw",side_effect=marker if who=="Shannon" else lambda *a,**kw:None):
                         t.draw(g.screen,(g.small,g.font,g.heading,g.big),g.village,None,"")
                     camera=(max(0,min(WORLD_W-1280,int(t.player_x-640))),max(0,min(WORLD_H-760,int(t.player_y-380))))
                     pixel=g.screen.get_at((tx-camera[0],ty+(3 if front else -50)-camera[1]))[:3]
-                    self.assertEqual(pixel==MARKER,front)
+                    from town_atmosphere import apply_daylight, clock_progress
+                    sample=pygame.Surface((1,1));sample.fill(MARKER)
+                    apply_daylight(sample,clock_progress(g.village))
+                    self.assertEqual(pixel==sample.get_at((0,0))[:3],front)
 
     def test_field_machinery_hides_both_companions_only_from_behind(self):
         g=self.g;adventure.enter(g);g.adventure_speech_time=0
@@ -55,7 +58,7 @@ class SceneDepthTests(unittest.TestCase):
                     pos=(1080,ay) if who=="Boole" else (1000,525)
                     adventure.state(g.village)["position"]=list(pos)
                     g.adventure_companion.position=(1080,ay) if who=="Shannon" else (0,0)
-                    with patch.object(g.town,"_villager",side_effect=marker if who=="Boole" else lambda *a:None),patch.object(g.adventure_companion,"draw",side_effect=marker if who=="Shannon" else lambda *a:None):
+                    with patch.object(g.town,"_villager",side_effect=marker if who=="Boole" else lambda *a,**kw:None),patch.object(g.adventure_companion,"draw",side_effect=marker if who=="Shannon" else lambda *a,**kw:None):
                         adventure.draw(g)
                     ox=max(0,min(780,pos[0]-640));oy=max(0,min(280,pos[1]-420))
                     pixel=g.screen.get_at((1080-ox,(495 if front else 465)-oy))[:3]

@@ -145,7 +145,7 @@ class Shannon:
             menu.set_alpha(round(255 * (self.motion - .65) / .35))
             screen.blit(menu, (0, 0))
         avatar = pygame.Surface((110, 150), pygame.SRCALPHA)
-        sprite(avatar, (55, 85), 0 if getattr(game, 'reduced_motion', False) else pygame.time.get_ticks() / 1000)
+        sprite(avatar, (55, 85), 0 if getattr(game, 'reduced_motion', False) else game.town.visual_time)
         screen.blit(pygame.transform.scale(avatar, (88, 120)), (self.center[0] - 44, self.center[1] - 68))
         if self.motion == 0:
             text = game.tiny.render('SHANNON [H]', True, PAPER)

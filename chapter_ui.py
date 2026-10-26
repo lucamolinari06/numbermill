@@ -16,7 +16,12 @@ def active(g):
 
 
 def can_open(g):
-    return (g.scene in ('town', 'factory', 'adventure', 'boiler_tower') and
+    if g.scene == 'canal':
+        import canal_settlement
+        if canal_settlement.modal_active(g):
+            return False
+    return (g.scene in ('town', 'factory', 'adventure', 'boiler_tower', 'canal') and
+            not (g.scene == 'town' and getattr(g, 'canal_departure_open', False)) and
             not (g.scene in ('adventure', 'boiler_tower') and getattr(g, 'adventure_modal', None)) and
             not (g.scene == 'factory' and (getattr(g, 'factory_dialog', None) or
                  getattr(g, 'factory_placing', None) or getattr(g, 'factory_moving', None) is not None)))
@@ -147,12 +152,15 @@ def click(g, point, button):
 
 
 def draw_prompt(g):
-    if g.town_dialogue or g.shannon.open:
+    if g.town_dialogue or g.shannon.open or not can_open(g):
         return
     data = story.observe(g.village)
     unread = sum(not row['read'] for row in data['evidence'].values())
     label = 'Field journal [B]' + (f' / {unread} new' if unread else '')
     g.button(JOURNAL_BUTTON, label, lambda: open_journal(g), small=True)
+    import canal_departure
+    if canal_departure.nearby(g):
+        return
     pending = story.pending(g.village)
     if pending:
         label = {'opening': 'Talk with Shannon [Enter]',

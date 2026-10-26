@@ -22,7 +22,7 @@ PLACEABLE = ("PIPE", "BEND", "SPLIT", "AND", "OR", "NOT", "XOR")
 ARITHMETIC = ("ADD", "SUB", "MUL", "GT", "EQ")
 SEQUENTIAL = ("CLOCK", "REGISTER", "COUNTER")
 UTILITY = ("DIV", "MOD", "MIN", "MAX", "MUX")
-ALL_PARTS = (*PLACEABLE, *ARITHMETIC, *SEQUENTIAL, *UTILITY, "DEVICE")
+ALL_PARTS = (*PLACEABLE, *ARITHMETIC, *SEQUENTIAL, *UTILITY, "CONSTANT", "DEVICE")
 CONDUCTORS = {"PIPE", "BEND", "SPLIT"}
 
 
@@ -45,6 +45,11 @@ class Part:
     kind: str
     rotation: int = 0
     device: dict | None = None
+    value: int = 1
+
+    def __post_init__(self):
+        if self.kind == "CONSTANT" and (type(self.value) is not int or not 0 <= self.value <= 65535):
+            raise ValueError("Constant must be a whole number from 0 to 65535")
 
     def ports(self) -> tuple[tuple[int, ...], tuple[int, ...]]:
         """Return ports after clockwise rotation; pipes have no polarity."""
@@ -58,6 +63,7 @@ class Part:
             "NOT": ((W,), (E,)),
             "DEVICE": ((W, S), (E,)),
             "CLOCK": ((), (E,)),
+            "CONSTANT": ((), (E,)),
             "REGISTER": ((W, S), (E,)),
             "COUNTER": ((W, S), (E,)),
             **{kind: ((W, S), (E,)) for kind in ARITHMETIC},
@@ -163,7 +169,7 @@ class Circuit:
         self.histories = {
             pos: [False]
             for pos, part in self.parts.items()
-            if (pos in self.terminals and not self.terminals[pos]["output"]) or part.kind in ("AND", "OR", "NOT", "XOR", "DEVICE", *ARITHMETIC, *SEQUENTIAL, *UTILITY)
+            if (pos in self.terminals and not self.terminals[pos]["output"]) or part.kind in ("AND", "OR", "NOT", "XOR", "DEVICE", "CONSTANT", *ARITHMETIC, *SEQUENTIAL, *UTILITY)
         }
         self.history_origin = 0
         self.routes = self._build_routes()
@@ -230,7 +236,9 @@ class Circuit:
             else:
                 inputs, _ = part.ports()
                 values = [self.input_value(pos, direction) for direction in inputs]
-                if part.kind == "AND":
+                if part.kind == "CONSTANT":
+                    value = part.value
+                elif part.kind == "AND":
                     value = all(values)
                 elif part.kind == "XOR":
                     value = bool(values[0]) != bool(values[1])
@@ -509,7 +517,8 @@ class Circuit:
     def snapshot(self) -> list[dict]:
         rows = [
             {"x": x, "y": y, "kind": part.kind, "rotation": part.rotation,
-             **({"device": deepcopy(part.device)} if part.kind == "DEVICE" else {})}
+             **({"device": deepcopy(part.device)} if part.kind == "DEVICE" else {}),
+             **({"value": part.value} if part.kind == "CONSTANT" else {})}
             for (x, y), part in sorted(self.parts.items())
             if (x, y) not in self.terminals
         ]
@@ -545,7 +554,7 @@ class Circuit:
                 definition = row.get("device") if kind == "DEVICE" else None
                 if kind == "DEVICE":
                     validate_device(definition)
-                parts[pos] = Part(kind, rotation, deepcopy(definition))
+                parts[pos] = Part(kind, rotation, deepcopy(definition), row.get("value", 1) if kind == "CONSTANT" else 1)
         circuit = cls(parts, terminals=terminals)
         circuit.trace_mode = any(row.get("kind") in ("TRACE", "WIRING") for row in rows)
         for row in rows:

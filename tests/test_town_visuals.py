@@ -69,15 +69,16 @@ class DistrictRenderingTests(unittest.TestCase):
     def setUpClass(cls):
         pygame.init()
 
-    def test_intersection_is_one_continuous_brick_grid(self):
+    def test_intersection_keeps_continuous_paving(self):
         from town import WORLD_W, WORLD_H
         surface = pygame.Surface((WORLD_W, WORLD_H))
         Town()._ground(surface)
         # Crossing the former north/south road edges must never expose grass.
-        pavement = {(183, 168, 139), (192, 178, 151)}
         for x in range(1075, 1165):
             for y in range(605, 630):
-                self.assertIn(tuple(surface.get_at((x, y)))[:3], pavement)
+                r,g,b=surface.get_at((x,y))[:3]
+                self.assertGreater(r,g)
+                self.assertGreater(g-b,12)
 
     def test_building_has_no_offset_green_shadow(self):
         surface = pygame.Surface((500, 400))

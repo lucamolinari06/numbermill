@@ -133,10 +133,14 @@ def click(game, mouse, button):
         elif part and part.kind == "DEVICE":
             game.inspect_device(pos)
         elif part:
-            circuit.set_part(pos, Part(part.kind, (part.rotation + 1) % 4, part.device))
+            circuit.set_part(pos, Part(part.kind, (part.rotation + 1) % 4, part.device, part.value))
             changed(game)
         return
     if button != 1:
+        return
+    if part and part.kind == "CONSTANT" and game.selected != "ERASE" and game.trace_source is None:
+        import constant_editor
+        constant_editor.open_editor(game, pos)
         return
     if game.selected == "TRACE":
         if game.trace_source is not None:
@@ -175,8 +179,11 @@ def click(game, mouse, button):
         if not game.held_device or (requires_unlocks and locked_blocks(game.village, game.held_device["parts"])):
             game.toast("Invent the arithmetic inside this device before placing it.")
             return
-    circuit.set_part(pos, Part(game.selected, game.rotation, game.held_device if game.selected == "DEVICE" else None))
+    placed = circuit.set_part(pos, Part(game.selected, game.rotation, game.held_device if game.selected == "DEVICE" else None))
     changed(game)
+    if placed and game.selected == "CONSTANT":
+        import constant_editor
+        constant_editor.open_editor(game, pos)
 
 
 def segment_distance(point, a, b):

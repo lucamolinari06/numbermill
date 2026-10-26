@@ -189,5 +189,6 @@ def draw_controls(game):
             yy = y + 52 + j * 27
             ui.fit_text(game.screen, game.small, key, x, yy, 166, ui.COPPER)
             ui.fit_text(game.screen, game.small, action, x + 174, yy, 278, ui.INK)
+    ui.fit_text(game.screen, game.small, "Reedhaven: E interacts.  1 trades or sails when shown.  Boat repairs begin at the southern landing.", 140, 599, 998, ui.MUTED)
     ui.fit_text(game.screen, game.small, "Esc closes the current panel or pauses.  F11 toggles fullscreen.", 140, 638, 760, ui.MUTED)
     game.button((959, 630, 180, 42), "Back  [Esc]", lambda: setattr(game, "controls_open", False), small=True)

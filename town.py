@@ -8,7 +8,10 @@ import scenery
 import scene_depth
 import town_art
 import town_water
-from citizens import update_activity
+import town_ground
+import town_atmosphere
+import day_clock
+from citizens import update_activity, night_due, NIGHT_ACTIVITIES
 
 WIDTH, HEIGHT = 1280, 760
 WORLD_W, WORLD_H = 2700, 1560
@@ -62,9 +65,11 @@ ROOFS = {
     "home_3": (157, 106, 83), "home_4": (85, 120, 129),
     "home_5": (133, 119, 78), "home_6": (86, 122, 99),
 }
-ROAD_RECTS = ((88, 535, 2510, 235), (1085, 120, 70, 1300),
-              (100, 930, 2390, 120), (90, HOME_STREET_Y - 30, 2390, 100),
-              (280, 265, 2240, 103), (1595, 265, 70, 1155))
+# Conservative actor travel corridors, distinct from the authored road edges.
+# Decoration also checks the full road mask, including curved shoulders.
+ROAD_RECTS = ((88, 608, 2510, 65), (1085, 120, 70, 1300),
+              (100, 952, 2390, 65), (90, HOME_STREET_Y - 17, 2390, 65),
+              (280, 275, 2240, 65), (1595, 265, 70, 1155))
 
 # All decorative bounds include canopies, shadows and posts, not just anchors.
 # Reserve the complete street and doorstep before placing any scenery.
@@ -87,15 +92,18 @@ DECORATION_CANDIDATES = (
         (2650, 480), (2635, 860), (60, 1190), (2640, 1150))),
     *(("planter", x, y, "") for x, y in ((635, 828), (1000, 850), (1170, 860),
         (200, 1100), (820, 1100), (1160, 1410), (2110, 1400), (1970, 850), (2250, 1100))),
-    *(("barrel", x, y, "") for x, y in ((1840, 823), (2340, 832), (2490, 875), (380, 850))),
+    *(("barrel", x, y, "") for x, y in ((2575, 568), (2360, 915), (380, 850))),
     *(("flowers", x, y, "") for x, y in ((800, 890), (650, 400), (1200, 400),
         (1800, 420), (2240, 415), (890, 1100), (400, 1420), (1550, 1410))),
-    *(("shrub", x, y, "") for y in (400, 845, 1120, 1425) for x in range(105, 2610, 240)),
+    *(("shrub", x, y, "") for y in (400, 845, 1120) for x in range(105, 2610, 240)),
+    *(("shrub", x, y, "") for x,y in ((125,1425),(165,1417),(535,1430),
+        (780,1425),(826,1418),(1430,1424),(1870,1427),(1910,1420),(2440,1423))),
     *(("rocks", x, y, "") for x, y in ((105, 250), (590, 1100), (1000, 885),
         (1430, 420), (1800, 1090), (2230, 1420), (2580, 400), (2550, 1090))),
     *(("planter", x, y, "") for x, y in ((730, 870), (1890, 820), (2130, 1100))),
     *(("flowers", x, y, "") for x, y in ((1760, 860), (2420, 1190), (860, 1410))),
     ("logpile",205,220,""), ("cart",1310,220,""),
+    ("logpile",2110,538,""),
     ("baskets",1880,230,""), ("baskets",451,512,""),
     ("garden",487,1248,""), ("cart",2075,1225,""),
     ("logpile",2460,1269,""), ("garden",2360,1434,""),
@@ -123,6 +131,8 @@ def scenery_exclusions():
         reserved.append(pygame.Rect(x - width // 2 - 14, y - 231, width + 28, 225))
         reserved.append(pygame.Rect(x - 42, y - 23, 84, 88))
     reserved.append(pygame.Rect(435, 803, 180, 110))  # cultivated farm rows
+    # The new garden approaches are walking ground, including their shoulders.
+    reserved.extend((pygame.Rect(858,760,47,35),pygame.Rect(858,911,60,36)))
     return reserved
 
 
@@ -138,6 +148,10 @@ def decoration_layout():
         if not pygame.Rect(0, 0, WORLD_W, WORLD_H - 102).contains(bounds):
             continue
         if any(bounds.colliderect(rect) for rect in reserved):
+            continue
+        if not town_ground.clears_road(bounds):
+            continue
+        if entry[0] != 'well' and not town_ground.clears_garden(bounds):
             continue
         accepted.append(entry)
         reserved.append(bounds.inflate(12, 12))
@@ -187,6 +201,9 @@ class Town:
         self.route_targets: dict[str, tuple[int, int]] = {}
         self.background = None
         self.scenery_props = ()
+        self.window_lights = {}
+        self.ambient_layout = ()
+        self.indoor_targets = {}
         self._background_homes = None
 
     def move(self, keys, dt):
@@ -257,6 +274,7 @@ class Town:
 
     def update_people(self, village, dt, economic=False):
         self.people_moving.clear()
+        self.indoor_targets.clear()
         present = {p["name"] for p in village.citizens} | {"Grace"}
         for name in set(self.people) - present:
             for mapping in (self.people, self.routes, self.route_targets, self.people_facing, self.people_walk_phase, self.display_people, self.display_phase, self.display_facing):
@@ -276,8 +294,9 @@ class Town:
             destination = person.get("destination") or person["home"]
             group = sorted(before_groups[destination])
             center = LOCATIONS.get(destination, LOCATIONS[person["home"]])
-            target = (center[0] + (group.index(person["name"]) - (len(group) - 1) / 2) * 60,
-                      center[1] + (20 if len(group) > 1 else 0))
+            target = center if person['activity'] in NIGHT_ACTIVITIES else (
+                center[0] + (group.index(person["name"]) - (len(group) - 1) / 2) * 60,
+                center[1] + (20 if len(group) > 1 else 0))
             point = self.people[person["name"]]
             arrived = math.dist(point, target) <= 3
             if economic and arrived:
@@ -304,16 +323,32 @@ class Town:
             target = LOCATIONS.get(destination, home)
             offset = slots.get(name, (0, 0))
             target = (target[0] + offset[0], target[1] + offset[1])
+            if person['activity'] in NIGHT_ACTIVITIES:
+                target = home
             self.display_people.setdefault(name, current.copy())
             self._travel(name, current, target, 110 * dt)
             person["position"] = current.copy()
             person["path"] = [list(point) for point in self.routes[name]]
             person["path_target"] = list(self.route_targets[name])
+            if person['activity'] in NIGHT_ACTIVITIES and math.dist(current, home) <= 3:
+                person.update(activity='sleeping', last_reason='Indoors for the night')
+                self.indoor_targets[name] = home
         grace = self.people.setdefault("Grace", [1540.0, 290.0])
         self.display_people.setdefault("Grace", grace.copy())
         bid = next((key for key, offer in village.offers.items() if offer["status"] == "bid"), None)
         destination = GRACE_JOB_DESTINATIONS.get(bid, "grace_shop")
+        grace_night = night_due({'name':'Grace'}, village)
+        if grace_night:
+            destination = 'grace_shop'
         self._travel("Grace", grace, LOCATIONS[destination], 130 * dt)
+        if grace_night and math.dist(grace, LOCATIONS['grace_shop']) <= 3:
+            self.indoor_targets['Grace'] = LOCATIONS['grace_shop']
+
+    def indoors(self, name):
+        """Wait for the displayed walker to reach the door before hiding them."""
+        target = self.indoor_targets.get(name)
+        point = self.display_people.get(name, self.people.get(name))
+        return target is not None and point is not None and math.dist(point, target) <= 3
 
     def update_visuals(self, dt):
         """Smooth the half-second economy steps without changing simulation time.
@@ -374,7 +409,7 @@ class Town:
         if place:
             return place
         candidates = [(math.dist((self.player_x, self.player_y), point), f"person:{name}")
-                      for name, point in self.people.items()]
+                      for name, point in self.people.items() if not self.indoors(name)]
         if not candidates:
             return None
         distance, key = min(candidates)
@@ -390,11 +425,12 @@ class Town:
         return key if distance < 92 else None
 
     def person_at(self, mouse):
-        if TOWN_READOUT_RECT.collidepoint(mouse) or MINIMAP_RECT.collidepoint(mouse):
+        if any(rect.collidepoint(mouse) for rect in (TOWN_READOUT_RECT, MINIMAP_RECT, day_clock.CLOCK_RECT)):
             return None
         camera_x = max(0, min(WORLD_W - WIDTH, int(self.player_x - WIDTH // 2)))
         camera_y = max(0, min(WORLD_H - HEIGHT, int(self.player_y - HEIGHT // 2)))
-        actors = [(name, self.display_people.get(name, point)) for name, point in self.people.items()]
+        actors = [(name, self.display_people.get(name, point)) for name, point in self.people.items()
+                  if not self.indoors(name)]
         actors.append(("Shannon", self.companion.position))
         for name, point in sorted(actors, key=lambda item: item[1][1], reverse=True):
             rect = pygame.Rect(point[0] - camera_x - 25, point[1] - camera_y - 62, 50, 88)
@@ -414,18 +450,24 @@ class Town:
             self._background_homes = homes
             self.background = pygame.Surface((WORLD_W, WORLD_H))
             cache = scene_depth.Cache((WORLD_W, WORLD_H))
-            self._ground(self.background, small, cache)
+            self.window_lights = {}
+            self.ambient_layout = decoration_layout()
+            frontages = {key: point for key, point in LOCATIONS.items()
+                         if (key != 'east_bakery' or key in village.businesses)
+                         and (not key.startswith('home_') or key in village.households
+                              or housing_state(village,key).get('cottage_built'))}
+            self._ground(self.background, small, cache, frontages)
             for key, point in LOCATIONS.items():
                 if key == "east_bakery" and key not in village.businesses:
                     x, y = point
-                    rectangle(self.background, (101, 136, 90), (x - 110, y - 175, 220, 150), 12)
+                    town_ground.vacant_plot(self.background,x,y,220,150)
                     for xx in range(x - 105, x + 110, 25):
                         rectangle(self.background, (192, 170, 122), (xx, y - 60, 7, 30), 2)
                     rectangle(self.background, (192, 170, 122), (x - 105, y - 52, 212, 5), 1)
                     continue
                 if key.startswith("home_") and key not in village.households and not housing_state(village, key).get("cottage_built"):
                     x, y = point
-                    rectangle(self.background, (101, 136, 90), (x - 85, y - 170, 170, 145), 12)
+                    town_ground.vacant_plot(self.background,x,y,170,145)
                     for xx in range(x - 80, x + 90, 20):
                         rectangle(self.background, (192, 170, 122), (xx, y - 55, 7, 28), 2)
                     rectangle(self.background, (192, 170, 122), (x - 80, y - 48, 168, 5), 1)
@@ -438,6 +480,8 @@ class Town:
                 x, y = point
                 cache.capture((x-160,y-240,320,250), y-12,
                               lambda target, point=point, key=key:self._building(target,point,key,heading,small,self.location_labels[key]))
+                prop = cache.props[-1]
+                self.window_lights[key] = (prop.rect, town_art.window_light(prop.image, prop.rect, point, key))
             self.scenery_props = cache.finish()
         camera_x = max(0, min(WORLD_W - WIDTH, int(self.player_x - WIDTH // 2)))
         camera_y = max(0, min(WORLD_H - HEIGHT, int(self.player_y - HEIGHT // 2)))
@@ -446,55 +490,66 @@ class Town:
         town_art.river_motion(surface, (camera_x, camera_y), WORLD_W, WORLD_H, seconds)
         # Sort by feet so people crossing one another remain spatially readable.
         actors = []
-        coats = {"Ada": (141, 91, 76), "Bram": (96, 119, 87), "Agnes": (156, 127, 68),
-                 "Dara": (91, 115, 148), "Mely": COPPER, "Luca": (65, 115, 130), "Grace": (122, 94, 138)}
+        import resident_performance
         for person in village.citizens:
             name = person["name"]
+            if self.indoors(name):
+                continue
             point = self.display_people.get(name, self.people.get(name, LOCATIONS[person["home"]]))
-            actors.append((point[1], point[0], name, coats.get(name, TEAL)))
+            actors.append((point[1], point[0], name, resident_performance.coat_for(name)))
         grace = self.display_people.get("Grace", self.people.get("Grace", LOCATIONS["grace_shop"]))
-        actors.append((grace[1], grace[0], "Grace", coats["Grace"]))
+        if not self.indoors('Grace'):
+            actors.append((grace[1], grace[0], "Grace", resident_performance.coat_for('Grace')))
         actors.append((self.player_y, self.player_x, "Boole", TEAL))
         actors.append((self.companion.position[1], self.companion.position[0], "Shannon", TEAL))
+        talking = dialogue[7:] if dialogue and dialogue.startswith('person:') else None
+        performances = resident_performance.performances(self, village, talking)
+        nameplates = []
         def draw_actor(actor):
             wy, wx, name, coat = actor
             x, y = int(wx - camera_x), int(wy - camera_y)
             if name == "Shannon":
-                self.companion.draw(surface, x, y)
+                self.companion.draw(surface, x, y, reduced_motion=self.reduced_motion,
+                                    attentive=talking == 'Shannon')
                 return
             player = name == "Boole"
+            moving = self._player_is_moving if player else name in self.display_moving
+            pose = performances.get(name, resident_performance.Performance())
+            facing = self.player_facing if player else pose.facing
+            if player and talking and not moving:
+                target = self.companion.position if talking == 'Shannon' else self.display_people.get(talking)
+                if target is not None:
+                    facing = resident_performance.facing_toward((wx, wy), target, facing)
             self._villager(surface, x, y, coat,
                            self.walk_phase if player else self.display_phase.get(name, 0),
-                           self._player_is_moving if player else name in self.display_moving,
-                           self.player_facing if player else self.display_facing.get(name, "south"), name)
-            if not player:
-                person = next((p for p in village.citizens if p['name'] == name), None)
-                if person is not None:
-                    target = LOCATIONS.get(person.get('destination'))
-                    arrived = target is not None and math.dist((wx, wy), target) < 85
-                    if person.get('activity') == 'seeking food' or arrived:
-                        town_art.activity_prop(surface, x, y, person, seconds, name in self.display_moving)
+                           moving, facing, name, seconds=seconds,
+                           action='idle' if player else pose.action)
             if not player and math.dist((wx, wy), (self.player_x, self.player_y)) < 190:
                 rendered = small.render(name, True, PAPER)
                 badge = rendered.get_rect(center=(x, y - 52)).inflate(12, 6)
-                rectangle(surface, (48, 68, 61), badge, 5)
-                surface.blit(rendered, rendered.get_rect(center=badge.center))
+                nameplates.append((badge, rendered))
         jobs = [(actor[0]+18, lambda actor=actor:draw_actor(actor)) for actor in actors]
-        evening = max(0., min(1., (getattr(village, 'daily_life', {}).get('elapsed', 0.) / 180. - .65) / .35))
+        progress = town_atmosphere.clock_progress(village)
+        evening = town_atmosphere.evening_light(progress)
+        for entry in self.ambient_layout:
+            if entry[0] in ('tree', 'birch'):
+                jobs.append((entry[2]+16, lambda entry=entry: town_atmosphere.leaves(
+                    surface, (camera_x, camera_y), (entry,), seconds, self.reduced_motion)))
         viewport = pygame.Rect(camera_x, camera_y, WIDTH, HEIGHT)
         for key, point in LOCATIONS.items():
             if key not in village.businesses and key not in village.households and key not in ('workshop', 'grace_shop'):
                 continue
             if not pygame.Rect(point[0]-160, point[1]-290, 320, 300).colliderect(viewport):
                 continue
-            working = any(p.get('activity') == 'working' and p.get('destination') == key
-                          and math.dist(p.get('position', point), point) < 85 for p in village.citizens)
-            if key == 'workshop':
-                working = any(item.get('busy', 0) > 0 for item in getattr(village, 'manufacturing', {}).get('equipment', []))
-            if key == 'grace_shop':
-                working = math.dist(grace, point) < 60 and 'Grace' not in self.display_moving
+            working = town_atmosphere.working(self, village, key)
             jobs.append((point[1]-11, lambda key=key, point=point, working=working:
                          town_art.building_effects(surface, (camera_x, camera_y), key, point, seconds, working, evening)))
+            if evening > 0 and key in self.window_lights:
+                bounds, light = self.window_lights[key]
+                light.set_alpha(round(255*evening))
+                jobs.append((point[1]-10, lambda bounds=bounds, light=light:
+                             surface.blit(light, (bounds.x-camera_x, bounds.y-camera_y))))
+        notices = []
         if village.businesses.get('east_bakery', {}).get('operating_state') == 'paused':
             bx, by = LOCATIONS['east_bakery']
             notice = small.render('CLOSED', True, PAPER)
@@ -502,8 +557,18 @@ class Town:
             def draw_closed():
                 rectangle(surface, COPPER, box, 4)
                 surface.blit(notice, notice.get_rect(center=box.center))
-            jobs.append((by-11,draw_closed))
+            notices.append(draw_closed)
+        import canal_departure
+        jobs.append((1520, lambda: canal_departure.draw_world(
+            surface, (camera_x, camera_y), village, seconds)))
         scene_depth.draw(surface,(camera_x,camera_y),self.scenery_props,jobs)
+        town_atmosphere.apply_daylight(surface, progress)
+        # Interface colors stay shared with the rest of the game at every hour.
+        for badge, rendered in nameplates:
+            rectangle(surface, (48, 68, 61), badge, 5)
+            surface.blit(rendered, rendered.get_rect(center=badge.center))
+        for notice in notices:
+            notice()
         self._readout(surface, small, village, heading)
         self._minimap(surface, small, village, camera_x, camera_y)
         if dialogue:
@@ -512,16 +577,16 @@ class Town:
     @staticmethod
     def clock_time(village):
         """Display a twelve-hour village day without changing simulation timing."""
-        from daily_life import progress
-        minutes = 8 * 60 + int(max(0, min(1, progress(village))) * 12 * 60)
+        minutes = 8 * 60 + int(town_atmosphere.clock_progress(village) * 12 * 60)
         return f"{minutes // 60:02d}:{minutes % 60:02d}"
 
     def _readout(self, surface, font, village, heading=None):
         draw_panel(surface, TOWN_READOUT_RECT)
         x, y = TOWN_READOUT_RECT.x + 14, TOWN_READOUT_RECT.y + 14
         words(surface, heading or font, "Copperside", x, y - 4, TEAL)
-        words(surface, font, f"Day {village.day}  {self.clock_time(village)}", x, y + 27)
+        words(surface, font, f"Day {village.day}", x, y + 27)
         words(surface, font, f"Coins  {village.coins}c", x, y + 54, COPPER)
+        day_clock.draw(surface, village, font)
 
     def _minimap(self, surface, font, village, camera_x, camera_y):
         """North-up overview with a live camera footprint and player marker."""
@@ -535,8 +600,7 @@ class Town:
         surface.set_clip(map_rect)
         pygame.draw.polygon(surface,(62,116,128),[position(wx,wy) for wx,wy in town_water.polygon(WORLD_W,WORLD_H)])
         pygame.draw.line(surface,(177,133,78),position(1120,WORLD_H-102),position(1120,WORLD_H-9),5)
-        for rx, ry, rw, rh in ROAD_RECTS:
-            pygame.draw.rect(surface, (207, 193, 153), (*position(rx, ry), max(2, round(rw * sx)), max(2, round(rh * sy))))
+        town_ground.draw_map(surface, position, (191, 179, 144))
         for key, (wx, wy) in LOCATIONS.items():
             active = key in village.businesses or key in village.households or key in ('workshop', 'grace_shop')
             from migration import housing_state
@@ -556,7 +620,7 @@ class Town:
         surface.set_clip(old_clip)
         pygame.draw.rect(surface, (112, 94, 63), MINIMAP_RECT, 1)
 
-    def _ground(self, surface, sign_font=None, cache=None):
+    def _ground(self, surface, sign_font=None, cache=None, frontages=None):
         import random
         rng = random.Random(42)
         surface.fill((119, 149, 104))
@@ -566,24 +630,10 @@ class Town:
             x, y = rng.randrange(WORLD_W), rng.randrange(WORLD_H)
             color = rng.choice(((128, 157, 109), (111, 142, 98), (141, 163, 115)))
             pygame.draw.line(surface, color, (x, y), (x + 3, y - 3), 2)
-        # Pave the union once. One world-aligned brick grid means intersections
-        # have neither an interior edge nor a competing row alignment.
-        mask_surface = pygame.Surface((WORLD_W, WORLD_H), pygame.SRCALPHA)
-        for rect in ROAD_RECTS:
-            rectangle(mask_surface, (255, 255, 255, 255), rect, 20)
-        # A single exterior curb follows the union, leaving intersections open.
-        edge = pygame.mask.from_surface(mask_surface).outline(3)
-        if edge:
-            pygame.draw.lines(surface, (96, 115, 83), True, edge, 11)
-            pygame.draw.lines(surface, (155, 149, 111), True, edge, 6)
-        paving = pygame.Surface((WORLD_W, WORLD_H), pygame.SRCALPHA)
-        paving.fill((183, 168, 139, 255))
-        for y in range(0, WORLD_H, 24):
-            offset = 21 if (y // 24) % 2 else 0
-            for x in range(-42, WORLD_W, 42):
-                rectangle(paving, (192, 178, 151), (x + offset, y, 38, 20), 4)
-        paving.blit(mask_surface, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
-        surface.blit(paving, (0, 0))
+        town_ground.soil(surface)
+        town_ground.roads(surface)
+        town_ground.frontage(surface, LOCATIONS if frontages is None else frontages)
+        town_ground.river_margin(surface, WORLD_W, WORLD_H)
         town_art.ground_details(surface)
         layout = decoration_layout()
         planting_exclusions = scenery_exclusions() + [town_art.WELL_COURT.inflate(16, 16)]
@@ -661,54 +711,75 @@ class Town:
     def _facing(dx, dy):
         return ("east" if dx > 0 else "west") if abs(dx) > abs(dy) else ("south" if dy > 0 else "north")
 
-    def _villager(self, surface, x, y, coat, phase=0.0, moving=False, facing="south", name="", *, shadow_color=(83, 104, 78)):
-        """Distance-driven four-direction walk, with alternating feet and arms."""
+    def _villager(self, surface, x, y, coat, phase=0.0, moving=False, facing="south", name="", *, shadow_color=(83, 104, 78), seconds=0., action='idle'):
+        """Distance-driven walking and grounded, simulation-clock destination poses."""
+        import resident_performance as performance
+        if moving and action != 'basket':
+            action = 'idle'
+        frame = performance.beat(seconds, name)
+        seated = action in ('sit', 'sit_chat') and not moving
         if shadow_color is not None:
             pygame.draw.ellipse(surface, shadow_color, (x - 17, y + 15, 34, 10))
+        if seated:
+            performance.stool(surface, x, y)
         stride = round(math.sin(phase) * 6) if moving else 0
         bob = -round(abs(math.sin(phase)) * 2) if moving else 0
         y += bob
         dark = tuple(max(0, c - 29) for c in coat)
         skin = (226, 180, 136)
-        hair = (71, 55, 46) if name not in ("Agnes", "Grace") else (157, 108, 66)
+        hair = {'Agnes': (157, 108, 66), 'Grace': (157, 108, 66),
+                'Luca': (115, 111, 94), 'Dara': (54, 48, 44)}.get(name, (71, 55, 46))
         side = facing in ("east", "west")
         sign = 1 if facing == "east" else -1
         for leg in (-1, 1):
             foot_x = x + (stride * leg if side else leg * 6)
             foot_y = y + 19 + (0 if side else stride * leg // 2)
+            knee = (x + leg * 5, y + 10)
+            if seated:
+                knee = (x + (sign*13 if side else leg*12), y+12)
+                foot_x = x + (sign*16+leg*2 if side else leg*13)
+                pygame.draw.line(surface, (77,67,57), (x+leg*5,y+8), knee, 6)
             if name == "Grace" and leg == 1:
                 # One wooden prosthesis, with a brass socket and ferrule. Keep
                 # the same footfall and silhouette in every walking direction.
-                knee = (x + leg * 5, y + 10)
                 pygame.draw.line(surface, (83, 64, 52), (x + leg * 5, y + 5), knee, 7)
                 pygame.draw.line(surface, (172, 122, 69), knee, (foot_x, foot_y + 2), 4)
                 pygame.draw.line(surface, (221, 175, 99), knee, (foot_x, foot_y), 1)
                 pygame.draw.circle(surface, (191, 150, 77), knee, 3)
                 rectangle(surface, (99, 85, 66), (foot_x - 2, foot_y + 1, 5, 3), 1)
                 continue
-            pygame.draw.line(surface, (77, 67, 57), (x + leg * 5, y + 5), (foot_x, foot_y), 6)
+            pygame.draw.line(surface, (77, 67, 57), knee if seated else (x + leg * 5, y + 5), (foot_x, foot_y), 6)
             rectangle(surface, (49, 53, 48), (foot_x - 4, foot_y - 1, 9, 5), 2)
+        # Body settles onto a stool or shifts by a single pixel; feet stay planted.
+        y += 5 if seated else (1 if not moving and seconds > 0 and frame == 2 else 0)
         rectangle(surface, dark, (x - 13, y - 16, 26, 27), 5)
         rectangle(surface, coat, (x - 10, y - 16, 20, 23), 4)
-        for arm in (-1, 1):
+        hands = performance.hand_offsets(action, facing, frame)
+        for index, arm in enumerate((-1, 1)):
             ax = x + arm * 13 + (stride * arm // 2 if side else 0)
             ay = y + 2 + (stride * arm // 2 if not side else 0)
+            if action != 'idle':
+                ax, ay = x + hands[index][0], y + hands[index][1]
             pygame.draw.line(surface, dark, (x + arm * 10, y - 11), (ax, ay), 5)
             rectangle(surface, skin, (ax - 2, ay, 5, 5), 2)
         rectangle(surface, skin, (x - 9, y - 35, 18, 21), 5)
         rectangle(surface, hair, (x - 11, y - 39, 22, 9), 3)
+        blink = seconds > 0 and (seconds + sum(map(ord, name))*.013) % 5.3 > 5.13
         if facing == "north":
             rectangle(surface, hair, (x - 10, y - 33, 20, 17), 4)
             rectangle(surface, dark, (x - 7, y - 13, 14, 14), 2)
         elif side:
             rectangle(surface, hair, (x - sign * 7 - 3, y - 32, 6, 13), 2)
-            pygame.draw.rect(surface, INK, (x + sign * 5, y - 28, 2, 3))
+            pygame.draw.rect(surface, INK, (x + sign * 5, y - 28, 2, 1 if blink else 3))
             rectangle(surface, skin, (x + sign * 9 - 2, y - 26, 5, 5), 1)
         else:
             rectangle(surface, hair, (x - 11, y - 32, 4, 8), 1)
             for ex in (-5, 4):
-                pygame.draw.rect(surface, INK, (x + ex, y - 28, 2, 3))
-            pygame.draw.line(surface, (173, 112, 88), (x - 2, y - 20), (x + 3, y - 20), 1)
+                pygame.draw.rect(surface, INK, (x + ex, y - 28, 2, 1 if blink else 3))
+            if action in ('chat', 'sit_chat') and frame == 1:
+                pygame.draw.rect(surface, (173, 112, 88), (x-1,y-21,3,3))
+            else:
+                pygame.draw.line(surface, (173, 112, 88), (x - 2, y - 20), (x + 3, y - 20), 1)
             pygame.draw.line(surface, PAPER, (x - 5, y - 14), (x, y - 8), 2)
             pygame.draw.circle(surface, GOLD, (x + 2, y - 2), 2)
         if name in ("Boole", "Luca"):
@@ -739,6 +810,7 @@ class Town:
         # Individual work clothes, hats and accessories make residents legible
         # without requiring a name label above every distant person.
         town_art.clothing(surface, x, y, name, facing, moving, phase)
+        performance.prop(surface, x, y, action, facing, frame, hands)
 
     def interaction_prompt(self):
         nearby = self.nearby()

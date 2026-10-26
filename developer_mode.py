@@ -93,6 +93,9 @@ def solve(g, kind=None):
         if g.device_stack: return False
         kind = g.adventure_editor
     if kind is None: return False
+    if kind == 'canal_boat':
+        g.toast('Build and test the boat controller at the landing.')
+        return False
     circuit = solution(kind)
     ok, message = adventure.certify(circuit, kind)
     if not ok:

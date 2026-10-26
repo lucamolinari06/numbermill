@@ -1,6 +1,12 @@
 """Saved opening-chapter evidence and scenes; never awards gameplay rewards."""
 
 EVIDENCE = {
+    'canal_arrival': ('The southern lock exchange', 'Reedhaven / lakeside landing',
+        'The restored launch reaches Reedhaven, where the canal opens into a lake. The lock exchange named on the tower plate is a working settlement, with people who depend on the old water machinery.',
+        'Meet the people on the quays. Their repairs and records may explain how the tower and the waterworks were connected.'),
+    'canal_record': ('One system, several places', 'Reedhaven / exchange records',
+        'The exchange records connect the tower reserve, the Mosswater survey stations and the upstream waterworks. These places served one regional system. The records do not name its designer.',
+        'The waterworks is the next lead. Its pumps and lock gates will need to be understood together; a shared service mark alone does not tell us who built them.'),
     'search': ('The unnamed engineer', 'Copperside',
         'Boole and Grace build with steam logic gates whose maker never signed them. Boole wants to find the person behind that work. Shannon wants to understand where he came from.',
         'Are the old machines connected to Shannon? Start with what can be observed, and compare discoveries with the people at home.'),
@@ -79,6 +85,8 @@ def observe(village):
     eligible = {'search': True, 'receiver': field.get('receiver'),
                 'lens': field.get('artifact'), 'tower_route': field.get('expansion_complete'),
                 'accumulator': tower.get('complete') or 'steam_accumulator' in workshop.get('unlocks', [])}
+    canal = workshop.get('canal', {})
+    eligible.update(canal_arrival=canal.get('visited'), canal_record=canal.get('clue_found'))
     for key in ('mosswater_home', 'tower_home', 'well_evening'):
         eligible[key] = data['scenes'].get(key, {}).get('complete', False)
     for key, happened in eligible.items():

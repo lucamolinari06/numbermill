@@ -1,0 +1,10 @@
+<!doctype html><meta charset="utf-8"><title>Copperside daylight review</title>
+<style>body{background:#233b35;color:#f1e4c2;font:18px system-ui;margin:24px}img{display:block;image-rendering:pixelated;max-width:none;margin:16px 0}button,select{font:inherit;padding:6px 12px}button:focus{outline:3px solid #dcab51}</style>
+<h1>Copperside daylight</h1><p>Matching 1280 × 760 gameplay frames. Populated streets and developed eastern sites are staged disposable fixtures. Choose a place and clock time, then switch Before/After. Images keep native pixels.</p>
+<select id="place" onchange="show()"><option value="center">center</option><option value="mill">mill</option><option value="artisan-street">artisan street</option><option value="river-cottages">river cottages</option><option value="developed-east">developed east</option><option value="developed-commercial">developed commercial</option></select><select id="period" onchange="show()"><option value="morning">morning 08:30</option><option value="noon">noon 12:00</option><option value="afternoon">afternoon 17:00</option><option value="evening">evening 19:30</option></select>
+<button onclick="version='before';show()">Before</button><button onclick="version='after';show()">After</button>
+<span id="caption"></span><img id="view" width="1280" height="760">
+<h2>Ordinary village routines</h2><p>These additional views advance the same disposable developed town through its real simulation, including purchases, attendance, production limits and evening destinations.</p>
+<button onclick="routine.src='after/routine-'+place.value+'-'+period.value+'.png'">Show chosen place/time with ordinary routines</button>
+<img id="routine" src="after/routine-center-evening.png" width="1280" height="760">
+<script>let version='after';function show(){view.src=version+'/'+place.value+'-'+period.value+'.png';caption.textContent=version;}show();</script>

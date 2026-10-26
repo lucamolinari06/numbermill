@@ -16,16 +16,17 @@ SYMBOLS = {"TRACE": "~", "PIPE": "-", "BEND": "L", "SPLIT": "T", "AND": "AND", "
     "ADD": "+", "SUB": "-", "MUL": "x", "GT": ">", "EQ": "=", "DEVICE": "[]", "ERASE": "X", "CLOCK": "CLK", "REGISTER": "REG", "COUNTER": "CNT"}
 NAMES = {"TRACE": "Draw trace", "PIPE": "Straight pipe", "BEND": "Bend", "SPLIT": "Splitter", "AND": "AND", "OR": "OR", "NOT": "NOT",
          "XOR": "XOR / exclusive OR", "ADD": "Add", "SUB": "Subtract (floor 0)", "MUL": "Multiply", "GT": "Greater than", "EQ": "Equal", "ERASE": "Erase", "CLOCK": "Clock / 4-tick cycle", "REGISTER": "Register / rising edge", "COUNTER": "Counter / rising edge"}
-SYMBOLS.update(DIV="/", MOD="%", MIN="MIN", MAX="MAX", MUX="MUX")
-NAMES.update(DIV="Divide / whole numbers", MOD="Remainder", MIN="Minimum", MAX="Maximum", MUX="Selector")
+SYMBOLS.update(DIV="/", MOD="%", MIN="MIN", MAX="MAX", MUX="MUX", CONSTANT="#")
+NAMES.update(DIV="Divide / whole numbers", MOD="Remainder", MIN="Minimum", MAX="Maximum", MUX="Selector", CONSTANT="Constant number")
 
 COMPONENT_GROUPS = {
-    "Logic": ("TRACE", "AND", "OR", "NOT", "XOR", "ERASE"),
+    "Logic": ("TRACE", "AND", "OR", "NOT", "XOR", "ERASE", "CONSTANT"),
     "Math": (*ARITHMETIC, *UTILITY),
     "Memory": SEQUENTIAL,
 }
 COMPONENT_HINTS = {
     "TRACE": "Join an output to an input.", "ERASE": "Remove a part and its wires.",
+    "CONSTANT": "Fixed number. Click body to edit.",
     "ADD": "Adds both inputs.", "SUB": "First minus second; minimum 0.",
     "MUL": "Multiplies both inputs.", "GT": "1 when first > second; else 0.", "EQ": "1 when inputs match; else 0.",
     "DIV": "Whole-number division; /0 = 0.", "MOD": "Division remainder; /0 = 0.",
@@ -150,7 +151,7 @@ def panel(game):
     for i, kind in enumerate(COMPONENT_GROUPS.get(group, COMPONENT_GROUPS["Logic"])):
         rect = pygame.Rect(x + 14 + i % 5 * 49, 476 + i // 5 * 46, 44, 40)
         game.button(rect, '' if kind in GATES else SYMBOLS[kind], lambda k=kind: game.select_part(k), active=game.selected == kind,
-                    enabled=not (bench and kind in (*ARITHMETIC, *SEQUENTIAL, *UTILITY)), small=True, icon=True)
+                    enabled=not (bench and kind in (*ARITHMETIC, *SEQUENTIAL, *UTILITY, "CONSTANT")), small=True, icon=True)
         if kind in GATES:
             draw_gate(game.screen, kind, rect.center, 34, PAPER if game.selected == kind else INK)
         if not hardware and kind in ARITHMETIC and kind not in game.village.arithmetic_unlocks:

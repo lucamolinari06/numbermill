@@ -37,6 +37,9 @@ def active_editor(g): return bool(getattr(g,'adventure_editor',None))
 
 
 def cases(kind):
+    if kind == 'canal_boat':
+        import canal_progress
+        return canal_progress.cases()
     if kind.startswith('jetpack_') or kind == 'tower_vent':
         import boiler_tower
         return boiler_tower.cases(kind)
@@ -74,8 +77,14 @@ def sync(g):
 
 
 def enter_editor(g,kind):
+    if kind == 'canal_boat':
+        import canal_progress
+        if not canal_progress.state(g.village)['boat_repaired'] or not canal_progress.unlocked(g.village):
+            g.toast(canal_progress.status(g.village))
+            return
     if active_editor(g): close_editor(g)
-    g.adventure_return_scene = 'boiler_tower' if kind.startswith('jetpack_') or kind == 'tower_vent' else 'adventure'
+    g.adventure_return_scene = ('town' if kind == 'canal_boat' else
+        'boiler_tower' if kind.startswith('jetpack_') or kind == 'tower_vent' else 'adventure')
     if g.factory_context is not None:
         import factory_controller
         factory_controller.leave(g)
@@ -91,6 +100,9 @@ def enter_editor(g,kind):
     g.circuit.switches.update({'A':37 if kind=='decoder' else 4,'B':2 if kind=='decoder' else 6,'C':16 if kind=='decoder' else 1})
     g.port_names=({'A':'Packed echo','B':'Bearing','C':'Base 16','OUT':'Distance'} if kind=='decoder' else
                   {'A':'Pressure','B':'Limit','C':'Latch flags','OUT':'Safe passage'})
+    if kind == 'canal_boat':
+        g.circuit.switches.update(dict(zip(('A', 'B', 'C'), canal_progress.DEPARTURE_READINGS)))
+        g.port_names = canal_progress.PORT_NAMES.copy()
     if kind.startswith('jetpack_') or kind == 'tower_vent':
         import boiler_tower
         g.circuit.switches.update(dict(zip(('A','B','C'), (9,4,1) if kind == 'tower_vent' else
@@ -118,6 +130,15 @@ def close_editor(g):
 
 def validate(g):
     sync(g);ok,message=certify(g.circuit,g.adventure_editor)
+    if g.adventure_editor == 'canal_boat':
+        import canal_progress
+        if ok:
+            ok, message = canal_progress.install(g.village, g.circuit.snapshot())
+            if ok:
+                g.toast('Boat controller installed. The southern route is ready.')
+                g.save_game()
+        g.adventure_result = message
+        return ok, message
     g.adventure_result=message
     if ok:
         current=state(g.village);current[g.adventure_editor]=True
@@ -154,6 +175,10 @@ def editor_click(g,pos,button=1):
 
 
 def specification(g):
+    if g.adventure_editor == 'canal_boat':
+        import canal_progress
+        title, lines = canal_progress.specification()
+        return title, list(lines)
     if g.adventure_editor.startswith('jetpack_') or g.adventure_editor == 'tower_vent':
         import boiler_tower
         title, lines = boiler_tower.specification(g.adventure_editor)
@@ -177,7 +202,7 @@ def panel(g):
     import workbench
     from gate_symbols import GATES,draw_gate
     ui_theme.draw_panel(g.screen,(956,136,272,588))
-    ui_theme.fit_text(g.screen,g.small,'FIELD CIRCUIT',972,151,240,TEAL)
+    ui_theme.fit_text(g.screen,g.small,'BOAT CIRCUIT' if g.adventure_editor == 'canal_boat' else 'FIELD CIRCUIT',972,151,240,TEAL)
     g.button((970,186,244,34),'SPECIFICATION',lambda:setattr(g,'adventure_spec',True),small=True)
     for i,group in enumerate(workbench.COMPONENT_GROUPS):
         g.button((970+i*83,237,78,30),group,lambda k=group:setattr(g,'adventure_group',k),small=True,active=getattr(g,'adventure_group','Logic')==group)
@@ -192,7 +217,7 @@ def panel(g):
     if developer_mode.enabled(g):
         g.button((970,597,244,27),'DEV: AUTO SOLVE',lambda:developer_mode.solve(g),small=True)
     g.button((970,630,244,34),'TEST + INSTALL [T]',lambda:validate(g),small=True)
-    g.button((970,678,244,32),'BACK TO EXPEDITION',lambda:close_editor(g),small=True)
+    g.button((970,678,244,32),'BACK TO LANDING' if g.adventure_editor == 'canal_boat' else 'BACK TO EXPEDITION',lambda:close_editor(g),small=True)
 
 
 def blocked(x,y):
@@ -425,7 +450,7 @@ def draw(g):
         jobs.append((ay+33,lambda:pygame.draw.circle(g.screen,GOLD,(int(ax-ox),int(ay-oy-10)),13,2)))
     jobs.append((y+18,lambda:g.town._villager(g.screen,int(x-ox),int(y-oy),TEAL,g.adventure_phase,g.adventure_moving,g.adventure_facing,'Boole')))
     cx,cy=g.adventure_companion.position
-    jobs.append((cy+18,lambda:g.adventure_companion.draw(g.screen,int(cx-ox),int(cy-oy))))
+    jobs.append((cy+18,lambda:g.adventure_companion.draw(g.screen,int(cx-ox),int(cy-oy),reduced_motion=g.reduced_motion)))
     scene_depth.draw(g.screen,(int(ox),int(oy)),g.adventure_props,jobs)
     for label,point in (('ECHO RECEIVER',POINTS['receiver']),('INTERLOCK',POINTS['interlock'])):
         if math.dist((x,y),point)<160:ui_theme.fit_text(g.screen,g.tiny,label,int(point[0]-ox-70),int(point[1]-oy-70),180,INK)

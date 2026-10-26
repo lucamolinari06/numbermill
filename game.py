@@ -18,6 +18,7 @@ import ledger
 import computation
 import workbench
 import component_info
+import constant_editor
 import inventions
 import sequential
 import timing_workshop
@@ -30,6 +31,8 @@ import sandbox
 import adventure
 import developer_mode
 import boiler_tower
+import canal_settlement
+import canal_departure
 import ui_theme
 import presentation
 import opening_chapter
@@ -238,6 +241,8 @@ class Game:
         self.invention_context = None
         self.adventure_context = self.adventure_editor = None
         self.adventure_runtime = None
+        self.canal_departure_open = False
+        self.canal_dialogue = None
         self.sandbox_context = None
         self.sandbox_draft = {}
         self.timing_key = self.timing_context = self.timing_results = None
@@ -256,6 +261,7 @@ class Game:
         self.developer_mode = False
         self.pause_menu_open = False
         self.component_info = None
+        self.constant_editor = None
         self.paused = False
         self.tick_interval = 0.22
         self.elapsed = 0.0
@@ -279,6 +285,7 @@ class Game:
 
     def start_slot(self, slot: int, *, introduce=False):
         self.component_info = None
+        self.constant_editor = None
         data = load_slot(slot)
         if data == "unreadable":
             self.toast(f"Slot {slot} could not be read. Its file was left untouched.")
@@ -374,6 +381,13 @@ class Game:
         self.town.update_people(self.village, 0)
         self.scene = "town"
         self.town_dialogue = None
+        self.canal_departure_open = False
+        self.canal_dialogue = None
+        self.__dict__.pop('canal_runtime', None)
+        if data and data.get('exploration_scene') == 'canal':
+            import canal_progress
+            if canal_progress.can_travel(self.village):
+                canal_settlement.enter(self, resume=True)
         self.town_topic = "work"
         self.chapter_view = None
         opening_chapter.observe(self.village)
@@ -453,10 +467,12 @@ class Game:
             "active_compute": context["active_compute"] if context else self.active_compute,
             "numeric_mode": context["numeric_mode"] if context else self.numeric_mode,
             "town": [self.town.player_x, self.town.player_y],
+            "exploration_scene": 'canal' if self.scene == 'canal' else 'town',
         })
 
     def return_to_menu(self):
         self.component_info = None
+        self.constant_editor = None
         if adventure.active_editor(self):
             adventure.close_editor(self)
         if self.factory_context is not None:
@@ -472,6 +488,8 @@ class Game:
         self.scene = "menu"
         self.menu_page = "title"
         self.chapter_view = None
+        self.canal_departure_open = False
+        self.canal_dialogue = None
         self.pending_delete = None
         self.pending_design_delete = None
         self.town_dialogue = None
@@ -783,6 +801,9 @@ class Game:
         factory_controller.enter(self, machine_id)
 
     def interact_town(self):
+        if canal_departure.nearby(self):
+            canal_departure.open_panel(self)
+            return
         if self.town_dialogue is None:
             nearby = self.town.nearby_place()
             if nearby == "adventure":
@@ -939,6 +960,9 @@ class Game:
                         action()
                         break
             return
+        if self.constant_editor is not None and not self.pause_menu_open:
+            constant_editor.click(self, mouse, button)
+            return
         if self.component_info is not None:
             component_info.click(self, mouse, button)
             return
@@ -951,6 +975,11 @@ class Game:
             return
         if chapter_ui.click(self, mouse, button):
             return
+        if self.scene == 'canal':
+            canal_settlement.handle_click(self, mouse, button)
+            return
+        if self.scene == 'town' and canal_departure.click(self, mouse, button):
+            return
         if self.scene in ("adventure", "boiler_tower"):
             adventure.click(self, mouse, button)
             return
@@ -961,6 +990,7 @@ class Game:
             return
         if self.scene == "town":
             from town import MINIMAP_RECT, TOWN_READOUT_RECT
+            from day_clock import CLOCK_RECT
             if self.shannon.click(self, mouse, button):
                 return
             if MINIMAP_RECT.collidepoint(mouse):
@@ -968,7 +998,7 @@ class Game:
                     self.open_ledger()
                     self.select_ledger_tab("Map")
                 return
-            if TOWN_READOUT_RECT.collidepoint(mouse):
+            if TOWN_READOUT_RECT.collidepoint(mouse) or CLOCK_RECT.collidepoint(mouse):
                 return
         if self.pending_design_delete is not None:
             if button == 1:
@@ -1331,6 +1361,9 @@ class Game:
         if event.key == pygame.K_F11:
             self.toggle_preference("fullscreen")
             return
+        if self.constant_editor is not None and not (self.pause_menu_open or self.settings_open):
+            constant_editor.key(self, event)
+            return
         if self.focus_navigation(event):
             return
         if self.settings_open:
@@ -1350,6 +1383,8 @@ class Game:
             return
         if chapter_ui.key(self, event):
             return
+        if self.scene == 'town' and canal_departure.handle_key(self, event):
+            return
         if key == pygame.K_b and chapter_ui.can_open(self):
             chapter_ui.open_journal(self)
             return
@@ -1359,6 +1394,10 @@ class Game:
             return
         if self.scene == "boiler_tower":
             if not boiler_tower.handle_key(self, event) and key == pygame.K_ESCAPE:
+                self.pause_menu_open = True
+            return
+        if self.scene == 'canal':
+            if not canal_settlement.handle_key(self, event) and key == pygame.K_ESCAPE:
                 self.pause_menu_open = True
             return
         if self.scene == "workshop" and adventure.active_editor(self) and adventure.editor_key(self, event):
@@ -1645,9 +1684,13 @@ class Game:
                 self.opening_screen = None
                 self.opening_reveal = 0.5 if not self.reduced_motion else 0.0
             return
-        self.opening_reveal = max(0.0, self.opening_reveal - min(max(dt, 0.0), 0.1))
         self.town.reduced_motion = self.reduced_motion
-        if self.pause_menu_open or self.settings_open or self.component_info is not None or chapter_ui.active(self):
+        if self.pause_menu_open or self.settings_open or self.component_info is not None or self.constant_editor is not None or chapter_ui.active(self):
+            return
+        self.opening_reveal = max(0.0, self.opening_reveal - min(max(dt, 0.0), 0.1))
+        if self.scene == 'town' and self.canal_departure_open:
+            return
+        if self.scene == 'canal' and canal_settlement.modal_active(self):
             return
         if self.reduced_motion:
             self.shannon.motion = float(self.shannon.open)
@@ -1668,6 +1711,8 @@ class Game:
             adventure.update(self, dt)
         elif self.scene == "boiler_tower":
             boiler_tower.update(self, dt)
+        elif self.scene == 'canal':
+            canal_settlement.update(self, dt)
         elif self.scene == "town":
             if self.town_dialogue is None and not self.shannon.open:
                 self.town.move(pygame.key.get_pressed(), dt)
@@ -1758,11 +1803,13 @@ class Game:
         else:
             symbol = self.circuit.terminals[pos]["name"] if pos in self.circuit.terminals else workbench.SYMBOLS.get(part.kind, part.kind)
             symbol = symbol[:6]
-            show_value = self.numeric_mode or signal > 1 or part.kind in (*ARITHMETIC, *SEQUENTIAL, *UTILITY) or pos in self.circuit.terminals
+            show_value = self.numeric_mode or signal > 1 or part.kind in (*ARITHMETIC, *SEQUENTIAL, *UTILITY, "CONSTANT") or pos in self.circuit.terminals
             rendered = self.small.render(symbol, True, PAPER)
             self.screen.blit(rendered, rendered.get_rect(center=(cx, cy - 7 if show_value else cy)))
             if show_value:
                 value = self.circuit.switches[self.circuit.terminals[pos]["name"]] if pos in self.circuit.terminals and not self.circuit.terminals[pos]["output"] else signal
+                if part.kind == "CONSTANT":
+                    value = part.value
                 rendered = self.tiny.render(str(int(value)), True, PAPER)
                 self.screen.blit(rendered, rendered.get_rect(center=(cx, cy + 9)))
 
@@ -2250,7 +2297,7 @@ class Game:
             if self.scene == "menu" and self.menu_page == "title":
                 self.__dict__.pop("title_continue_slot", None)
         self.draw_scene()
-        if self.scene in ('adventure', 'boiler_tower') and chapter_ui.can_open(self):
+        if self.scene in ('adventure', 'boiler_tower', 'canal') and chapter_ui.can_open(self):
             self.button(chapter_ui.JOURNAL_BUTTON, 'Field journal [B]', lambda: chapter_ui.open_journal(self), small=True)
         if self.scene == 'factory' and chapter_ui.can_open(self):
             self.button((490, 92, 270, 30), 'Field journal [B]', lambda: chapter_ui.open_journal(self), small=True)
@@ -2259,6 +2306,8 @@ class Game:
             adventure.draw_specification(self)
         if self.component_info is not None:
             component_info.draw(self)
+        if self.constant_editor is not None:
+            constant_editor.draw(self)
         chapter_ui.draw(self)
         if self.pause_menu_open:
             shade = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
@@ -2291,6 +2340,9 @@ class Game:
             return
         if self.scene == "boiler_tower":
             boiler_tower.draw(self)
+            return
+        if self.scene == 'canal':
+            canal_settlement.draw(self)
             return
         if self.scene == "factory":
             factory_ui.draw(self)
@@ -2329,6 +2381,7 @@ class Game:
                     self.button((830, 430, 183, 35), 'Journey [6]', lambda n=name: self.talk_journey(n),
                                 active=self.town_topic == 'journey', small=True)
             chapter_ui.draw_prompt(self)
+            canal_departure.draw(self)
             return
         if self.device_stack:
             self.draw_background()
@@ -2348,7 +2401,7 @@ class Game:
             return
         self.draw_background()
         if adventure.active_editor(self):
-            self.button((980, 60, 228, 40), "BACK TO FIELD [ESC]", lambda: adventure.close_editor(self), small=True)
+            self.button((980, 60, 228, 40), "BACK TO LANDING [ESC]" if self.adventure_editor == 'canal_boat' else "BACK TO FIELD [ESC]", lambda: adventure.close_editor(self), small=True)
         elif self.factory_context is not None:
             self.button((980, 60, 228, 40), "BACK TO FLOOR [ESC]", self.open_factory, small=True)
         else:
@@ -2380,6 +2433,8 @@ class Game:
             status = (f"{device['name']} v{device.get('version', 1)} | "
                       f"{ports['A']} ({directions[inputs[0]]}), {ports['B']} ({directions[inputs[1]]}) -> "
                       f"{ports['OUT']} ({directions[outputs[0]]}) | Right-click: inspect")
+        elif hovered_part and hovered_part.kind == "CONSTANT":
+            status = f"Constant {hovered_part.value} / click body to edit; right-click to rotate; output socket starts a trace"
         elif self.board_pos(self.mouse_pos()) in self.circuit.terminals:
             key = self.circuit.terminals[self.board_pos(self.mouse_pos())]["name"]
             status = f"Port {key}: {self.port_names.get(key, key)} / click body to change input; output socket starts a trace"

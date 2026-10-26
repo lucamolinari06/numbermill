@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Copperside environment comparison</title>
+<style>
+body{margin:24px;background:#202e29;color:#f3e9cf;font:16px system-ui,sans-serif}h1{font-size:24px;margin-bottom:8px}p{max-width:850px;line-height:1.5}
+nav{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:20px 0}button,select{font:inherit;padding:8px 14px;border:1px solid #bdaa7c;background:#eee2bf;color:#243a32;border-radius:4px}button[aria-pressed=true]{background:#4c7970;color:white}figure{margin:0;overflow:auto}img{display:block;width:1280px;height:760px;image-rendering:pixelated}body.fit img{width:min(100%,1280px);height:auto}figcaption{padding:10px 0;color:#d6caa8}a{color:#bddfcd}
+</style>
+<h1>Copperside · environment first pass</h1>
+<p>Matching Day 1 views at the original 1280 × 760 gameplay resolution. Switch between Before and After without moving the camera. Buildings, entrances and collision boundaries retain their positions.</p>
+<nav aria-label="Comparison controls">
+<label>View <select id="view">
+<option value="center">Center and well garden</option><option value="artisan-street">Artisan street</option><option value="river-west">Cottage lane</option><option value="bridge-approach">Bridge approach</option><option value="fuel-yard">Fuel yard and mill</option><option value="north-shops">Northern shops</option><option value="west-mill-farm">Farm and garden</option><option value="river-east">Eastern future sites</option><option value="north-east">Northern future site</option>
+</select></label>
+<button id="before" aria-pressed="false">Before (B)</button><button id="after" aria-pressed="true">After (A)</button>
+<label><input id="fit" type="checkbox"> Fit to window</label>
+</nav>
+<figure><img id="frame" src="after/center.png" alt="After: center and well garden"><figcaption id="caption">After · center and well garden · native gameplay scale</figcaption></figure>
+<p>Additional checks: <a href="after/developed-east.png">developed cottages</a> · <a href="after/developed-north.png">opened commercial site</a> · <a href="after/all-buildings.png">all eighteen buildings</a> · <a href="after/overview.png">town overview</a>.</p>
+<script>
+let state='after';const view=document.querySelector('#view'),frame=document.querySelector('#frame');
+function render(){frame.src=`${state}/${view.value}.png`;frame.alt=`${state}: ${view.selectedOptions[0].text}`;document.querySelector('#caption').textContent=`${state==='after'?'After':'Before'} · ${view.selectedOptions[0].text} · ${document.querySelector('#fit').checked?'fit to window':'native gameplay scale'}`;for(const s of ['before','after'])document.querySelector('#'+s).setAttribute('aria-pressed',String(s===state));}
+for(const s of ['before','after'])document.querySelector('#'+s).onclick=()=>{state=s;render()};view.onchange=render;
+document.querySelector('#fit').onchange=e=>{document.body.classList.toggle('fit',e.target.checked);render()};
+document.addEventListener('keydown',e=>{if(e.target.tagName==='SELECT')return;if(e.key.toLowerCase()==='b')state='before';else if(e.key.toLowerCase()==='a')state='after';else return;render()});
+</script>
+</html>

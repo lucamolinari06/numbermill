@@ -19,6 +19,7 @@ INPUTS = {
     "NOT": (("Signal", "0 is off / nonzero is on"),),
 }
 OUTPUTS = {
+    "CONSTANT": ("Number", "Fixed whole number: 0 to 65535"),
     "ADD": ("Sum", "First + second"), "SUB": ("Difference", "Amount - subtract; floor 0"),
     "MUL": ("Product", "First x second"), "DIV": ("Quotient", "Whole-number division"),
     "MOD": ("Remainder", "What remains after division"),
@@ -32,6 +33,7 @@ OUTPUTS = {
     "XOR": ("Result", "1 when exactly one is on"), "NOT": ("Result", "1 when input is 0; else 0"),
 }
 NOTES = {
+    "CONSTANT": "No input wires needed. Click the placed block's body to set its number; use the output socket to wire it.",
     "ADD": "Numbers range from 0 to 65535. Overflow wraps back to 0.",
     "MUL": "Numbers range from 0 to 65535. Overflow wraps back to 0.",
     "SUB": "Input order matters. Negative results become 0.",
@@ -82,7 +84,7 @@ def button(g, y, x=970, width=244):
 
 def rotate(g):
     part = g.component_info
-    g.component_info = Part(part.kind, (part.rotation + 1) % 4, part.device)
+    g.component_info = Part(part.kind, (part.rotation + 1) % 4, part.device, part.value)
 
 
 def close(g):

@@ -114,7 +114,8 @@ class VillageTests(unittest.TestCase):
                             for entry in village.trade_history[-2]["entries"]))
         self.assertTrue(mely["memories"])
         self.assertIn(mely["activity"], ("working", "resting", "visiting neighbors",
-                                         "spending time with spouse", "seeking food", "looking for help"))
+                                         "spending time with spouse", "seeking food", "looking for help",
+                                         "heading home", "sleeping"))
 
     def test_workshop_service_uses_local_supplies_and_pays_net_income(self):
         active, control = Village(), Village()

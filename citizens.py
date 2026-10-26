@@ -18,6 +18,22 @@ ASPIRATIONS = {
     "Dara": "Make the market welcoming to everyone",
 }
 
+NIGHT_ACTIVITIES = {'heading home', 'sleeping'}
+
+
+def home_time(name, day):
+    """Stable individual departures from 17:45–18:45, varying gently by day."""
+    identity = sum((index+1)*ord(char) for index,char in enumerate(name))
+    return 17*60+45+(identity+day*7)%61
+
+
+def night_due(person, village):
+    from daily_life import DAY_SECONDS
+    current = village.daily_life
+    if current.get('day') != village.day:
+        return False
+    return 8*60+current.get('elapsed',0.)/DAY_SECONDS*720 >= home_time(person['name'],village.day)
+
 
 def prepare(person):
     traits = TRAITS.get(person["name"], {"drive": 10, "sociable": 10, "care": 10})
@@ -41,6 +57,14 @@ def update_activity(person, home, village, dt, arrived):
     """Choose visits from needs; rewards are earned only at the destination."""
     from daily_life import SHIFT_SECONDS, FOOD_ACTIONS
     prepare(person)
+    if night_due(person, village):
+        if person.get('destination') != person['home'] or person['activity'] not in NIGHT_ACTIVITIES:
+            person.update(activity='heading home', destination=person['home'],
+                          last_reason='Heading home for the evening', visit_seconds=0.)
+        return
+    if person['activity'] in NIGHT_ACTIVITIES:
+        person.update(activity='at home', destination=person['home'],
+                      last_reason='Starting the day', visit_seconds=0.)
     if not arrived:
         return
     person["visit_seconds"] = person.get("visit_seconds", 0.0) + dt
@@ -115,6 +139,8 @@ def social_company(person, village):
     """A visit only satisfies social needs when somebody is actually there."""
     spouse = ("Luca" if person["name"] == "Mely" else "Mely") if person["activity"] == "spending time with spouse" else None
     for other in village.citizens:
+        if other.get('activity') == 'sleeping':
+            continue
         if other is person or spouse and other["name"] != spouse:
             continue
         if other.get("destination") != person.get("destination"):
